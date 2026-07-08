@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Development overrides — auto-loaded by `docker compose up`
+#
+# Differences from production:
+#   - Backend: Django dev server with live code reload (volume mount)
+#   - Frontend: Vite dev server with HMR on :5173
+#   - Ports exposed for local DB tools and MinIO console
+#   - Debug mode on, email prints to console, no email verification
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  postgres:
+    ports:
+      - "5433:5432"   # 5432 may be taken by a local PG install; connect DB tools to localhost:5433
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password}
+
+  minio:
+    ports:
+      - "9000:9000"   # MinIO S3 API
+      - "9001:9001"   # MinIO web console — http://localhost:9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-dev_minio_password}
+
+  backend:
+    volumes:
+      - ./backend:/app          # Live code reload
+      - static_files:/app/staticfiles
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-easyecookbook}:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/${POSTGRES_DB:-easyecookbook}
+      SECRET_KEY: ${SECRET_KEY:-dev-insecure-key-do-not-use-in-production-easyecookbook}
+      ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-dev_minio_password}
+      MINIO_BUCKET: ${MINIO_BUCKET:-media}
+      MINIO_USE_HTTPS: "false"
+      DEBUG: "true"
+      ACCOUNT_EMAIL_VERIFICATION: "none"
+    command: python manage.py runserver 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules    # Preserve container node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE=/api
+    command: npm run dev -- --host
+
+  # MinIO needs to satisfy the postgres password constraint in dev
+  mc:
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-dev_minio_password}
+      MINIO_BUCKET: ${MINIO_BUCKET:-media}

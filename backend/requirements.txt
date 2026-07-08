@@ -1,0 +1,38 @@
+# ── Django core ───────────────────────────────────────────────────────────────
+Django==5.1.4
+djangorestframework==3.15.2
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+django-allauth==65.3.0
+dj-rest-auth==7.0.0
+djangorestframework-simplejwt==5.3.1
+
+# ── Database ──────────────────────────────────────────────────────────────────
+psycopg2-binary==2.9.10
+
+# ── Storage (MinIO / S3) ──────────────────────────────────────────────────────
+django-storages==1.14.4
+boto3==1.35.93
+
+# ── API utilities ─────────────────────────────────────────────────────────────
+django-cors-headers==4.6.0
+django-filter==24.3
+django-environ==0.11.2
+
+# ── Images ────────────────────────────────────────────────────────────────────
+Pillow==11.0.0
+
+# ── WSGI server ───────────────────────────────────────────────────────────────
+gunicorn==23.0.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-slugify==8.0.4
+requests==2.32.3
+
+# ── Future: async tasks (uncomment when adding Celery support) ────────────────
+# celery==5.4.0
+# redis==5.2.1
+# django-celery-beat==2.7.0
+
+# ── Future: recipe scraper (uncomment when building scraper feature) ──────────
+# recipe-scrapers==14.58.0
