@@ -5,6 +5,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import IngredientListDisplay from "../../components/recipes/IngredientListDisplay";
 import StepListDisplay from "../../components/recipes/StepListDisplay";
 import CommentsSection from "../../components/recipes/CommentsSection";
+import AccompanimentsSection from "../../components/recipes/AccompanimentsSection";
 
 function formatTime(minutes: number | null): string | null {
   if (!minutes) return null;
@@ -180,7 +181,8 @@ export default function RecipeDetailPage() {
       </div>
 
       {/* Comments */}
-      <div className="border-t pt-8">
+      <div className="border-t pt-8 space-y-10">
+        <AccompanimentsSection recipeId={recipeId} isOwner={isOwner} />
         <CommentsSection recipeId={recipeId} />
       </div>
     </article>

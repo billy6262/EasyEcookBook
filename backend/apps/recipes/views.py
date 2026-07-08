@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models import Q
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter, SearchFilter
@@ -9,6 +10,7 @@ from apps.recipes.models import (
     Collection,
     Ingredient,
     Recipe,
+    RecipeAccompaniment,
     RecipeIngredient,
     Step,
     Tag,
@@ -174,6 +176,73 @@ class RecipeViewSet(viewsets.ModelViewSet):
             RecipeDetailSerializer(forked, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
+
+    # ── Accompaniments ────────────────────────────────────────────────────────
+    @action(detail=True, methods=["get", "post"], url_path="accompaniments")
+    def accompaniments(self, request, pk=None):
+        """
+        GET  /api/recipes/:id/accompaniments/       → list all linked recipes
+        POST /api/recipes/:id/accompaniments/ {recipe_id} → add a bidirectional link
+        """
+        recipe = self.get_object()
+
+        if request.method == "GET":
+            from_ids = RecipeAccompaniment.objects.filter(
+                from_recipe=recipe
+            ).values_list("to_recipe_id", flat=True)
+            to_ids = RecipeAccompaniment.objects.filter(
+                to_recipe=recipe
+            ).values_list("from_recipe_id", flat=True)
+            linked = Recipe.objects.filter(
+                id__in=list(from_ids) + list(to_ids)
+            ).order_by("title")
+            return Response(
+                RecipeListSerializer(linked, many=True, context={"request": request}).data
+            )
+
+        # POST — add link
+        other_id = request.data.get("recipe_id")
+        if not other_id:
+            return Response(
+                {"detail": "recipe_id is required."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if int(other_id) == recipe.id:
+            return Response(
+                {"detail": "Cannot link a recipe to itself."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            other = Recipe.objects.get(pk=other_id)
+        except Recipe.DoesNotExist:
+            return Response({"detail": "Recipe not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        already_linked = RecipeAccompaniment.objects.filter(
+            Q(from_recipe=recipe, to_recipe=other)
+            | Q(from_recipe=other, to_recipe=recipe)
+        ).exists()
+        if already_linked:
+            return Response({"detail": "Already linked."}, status=status.HTTP_400_BAD_REQUEST)
+
+        RecipeAccompaniment.objects.create(
+            from_recipe=recipe, to_recipe=other, added_by=request.user
+        )
+        return Response(
+            RecipeListSerializer(other, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=True,
+        methods=["delete"],
+        url_path=r"accompaniments/(?P<acc_id>\d+)",
+    )
+    def remove_accompaniment(self, request, pk=None, acc_id=None):
+        """DELETE /api/recipes/:id/accompaniments/:acc_id/ — remove a bidirectional link"""
+        recipe = self.get_object()
+        RecipeAccompaniment.objects.filter(
+            Q(from_recipe=recipe, to_recipe_id=acc_id)
+            | Q(from_recipe_id=acc_id, to_recipe=recipe)
+        ).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     # ── Comments ──────────────────────────────────────────────────────────────
     @action(detail=True, methods=["get", "post"], url_path="comments")

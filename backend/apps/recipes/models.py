@@ -225,3 +225,37 @@ class Comment(models.Model):
 
     def __str__(self) -> str:
         return f"Comment by {self.author} on {self.recipe}"
+
+
+class RecipeAccompaniment(models.Model):
+    """
+    Bidirectional link between two recipes (e.g. pasta ↔ garlic bread).
+    A single row represents both directions — when fetching accompaniments
+    for a recipe, query both from_recipe and to_recipe columns.
+    """
+
+    from_recipe = models.ForeignKey(
+        Recipe, on_delete=models.CASCADE, related_name="accompaniments_from"
+    )
+    to_recipe = models.ForeignKey(
+        Recipe, on_delete=models.CASCADE, related_name="accompaniments_to"
+    )
+    added_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="added_accompaniments",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [["from_recipe", "to_recipe"]]
+        constraints = [
+            models.CheckConstraint(
+                check=~models.Q(from_recipe=models.F("to_recipe")),
+                name="accompaniment_no_self_link",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.from_recipe} ↔ {self.to_recipe}"

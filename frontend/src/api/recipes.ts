@@ -179,4 +179,13 @@ export const recipesApi = {
 
   addComment: (id: number, body: string, parent?: number) =>
     apiClient.post<Comment>(`/recipes/${id}/comments/`, { body, parent }),
+
+  listAccompaniments: (id: number) =>
+    apiClient.get<Recipe[]>(`/recipes/${id}/accompaniments/`),
+
+  addAccompaniment: (id: number, linkedId: number) =>
+    apiClient.post<Recipe>(`/recipes/${id}/accompaniments/`, { recipe_id: linkedId }),
+
+  removeAccompaniment: (id: number, linkedId: number) =>
+    apiClient.delete(`/recipes/${id}/accompaniments/${linkedId}/`),
 };
