@@ -9,11 +9,19 @@ const apiClient = axios.create({
 });
 
 // Attempt a silent token refresh on 401, then retry once.
+// Never intercept the refresh or login endpoints themselves to avoid infinite loops.
+const NO_RETRY_URLS = ["/auth/token/refresh/", "/auth/login/", "/auth/logout/"];
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+    const isRetryable =
+      error.response?.status === 401 &&
+      !original._retry &&
+      !NO_RETRY_URLS.some((url) => original.url?.includes(url));
+
+    if (isRetryable) {
       original._retry = true;
       try {
         await apiClient.post("/auth/token/refresh/");

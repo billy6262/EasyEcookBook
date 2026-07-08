@@ -72,6 +72,7 @@ class Recipe(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="recipes"
     )
     cover_image = models.ImageField(upload_to="recipes/covers/", null=True, blank=True)
+    cover_image_url = models.URLField(null=True, blank=True)  # user-supplied URL alternative
     visibility = models.CharField(
         max_length=10, choices=VISIBILITY_CHOICES, default=VISIBILITY_PUBLIC
     )

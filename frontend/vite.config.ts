@@ -12,6 +12,11 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    watch: {
+      // Required on Windows + Docker: inotify doesn't work across the volume boundary
+      usePolling: true,
+      interval: 1000,
+    },
     proxy: {
       // In development, forward /api requests to the Django dev server
       "/api": {

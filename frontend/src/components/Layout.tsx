@@ -10,7 +10,7 @@ export default function Layout() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <Link to="/" className="text-xl font-bold text-green-600">
-              EasyEcookBook
+              EasyECookBook
             </Link>
             <div className="flex items-center gap-6">
               <Link

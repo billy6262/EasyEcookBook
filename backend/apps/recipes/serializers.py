@@ -3,8 +3,6 @@ from rest_framework import serializers
 from apps.recipes.models import (
     Category,
     Collection,
-    CollectionMembership,
-    CollectionRecipe,
     Comment,
     Ingredient,
     Recipe,
@@ -18,12 +16,14 @@ class TagSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tag
         fields = ["id", "name", "slug"]
+        read_only_fields = ["slug"]  # auto-generated from name in model.save()
 
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = ["id", "name", "slug", "parent"]
+        read_only_fields = ["slug"]  # auto-generated from name in model.save()
 
 
 class IngredientSerializer(serializers.ModelSerializer):
@@ -53,18 +53,63 @@ class RecipeAuthorSerializer(serializers.Serializer):
     last_name = serializers.CharField()
 
 
+class RecipeWriteSerializer(serializers.ModelSerializer):
+    """Used for CREATE and PATCH — accepts tag_ids and category_id as FK IDs."""
+
+    tag_ids = serializers.PrimaryKeyRelatedField(
+        queryset=Tag.objects.all(),
+        many=True,
+        source="tags",
+        required=False,
+        allow_empty=True,
+    )
+    category_id = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.all(),
+        source="category",
+        allow_null=True,
+        required=False,
+    )
+
+    class Meta:
+        model = Recipe
+        fields = [
+            "title", "description", "servings", "prep_time", "cook_time",
+            "visibility", "cover_image", "cover_image_url", "source_url",
+            "tag_ids", "category_id",
+        ]
+
+    def _set_tags(self, instance, tags):
+        if tags is not None:
+            instance.tags.set(tags)
+
+    def create(self, validated_data):
+        tags = validated_data.pop("tags", [])
+        instance = super().create(validated_data)
+        instance.tags.set(tags)
+        return instance
+
+    def update(self, instance, validated_data):
+        tags = validated_data.pop("tags", None)
+        instance = super().update(instance, validated_data)
+        self._set_tags(instance, tags)
+        return instance
+
+
 class RecipeListSerializer(serializers.ModelSerializer):
     """Lightweight representation for list and search results."""
 
     created_by = RecipeAuthorSerializer(read_only=True)
     fork_count = serializers.IntegerField(source="forks.count", read_only=True)
+    tags = TagSerializer(many=True, read_only=True)
+    category = CategorySerializer(read_only=True)
 
     class Meta:
         model = Recipe
         fields = [
             "id", "title", "description", "servings",
-            "prep_time", "cook_time", "cover_image",
+            "prep_time", "cook_time", "cover_image", "cover_image_url",
             "visibility", "created_by", "created_at", "fork_count",
+            "tags", "category",
         ]
 
 
@@ -84,7 +129,7 @@ class RecipeDetailSerializer(serializers.ModelSerializer):
             "id", "title", "description", "servings",
             "prep_time", "cook_time", "cover_image",
             "visibility", "created_by", "created_at", "updated_at",
-            "forked_from", "source_url", "tags", "category",
+            "forked_from", "source_url", "cover_image_url", "tags", "category",
             "ingredients", "steps", "fork_count",
         ]
 
