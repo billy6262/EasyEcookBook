@@ -4,6 +4,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import AboutPage from "./pages/AboutPage";
 import RecipesListPage from "./pages/recipes/RecipesListPage";
 import RecipeDetailPage from "./pages/recipes/RecipeDetailPage";
 import RecipeFormPage from "./pages/recipes/RecipeFormPage";
@@ -27,6 +28,7 @@ export default function App() {
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+      <Route path="/about" element={<AboutPage />} />
 
       {/* Event invite landing + guest-capable board (standalone, no app shell) */}
       <Route path="/events/join/:token" element={<EventJoinPage />} />

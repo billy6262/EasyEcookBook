@@ -1,6 +1,6 @@
 import re
 
-from django.core.exceptions import ValidationError
+import requests
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -8,21 +8,22 @@ from rest_framework.views import APIView
 
 from .models import ScrapedRecipe
 from .serializers import ScrapeRequestSerializer, ScrapeResultSerializer
-from .utils import download_and_store_image, fetch_page_html, parse_ingredient_str
+from .utils import (
+    download_and_store_image,
+    fetch_page_html,
+    parse_ingredient_str,
+    parse_recipe_jsonld,
+)
 
 # `recipe_scrapers` is an optional dependency (see requirements.txt). Import it
 # lazily so a missing package doesn't crash the entire URLconf at startup.
+# Even without it, scraping still works via the JSON-LD fallback below.
 try:
     from recipe_scrapers import scrape_html
-    from recipe_scrapers._exceptions import (
-        NoSchemaFoundInWildMode,
-        WebsiteNotImplementedError,
-    )
 
     SCRAPER_AVAILABLE = True
 except ModuleNotFoundError:  # pragma: no cover - depends on optional install
     scrape_html = None
-    WebsiteNotImplementedError = NoSchemaFoundInWildMode = Exception
     SCRAPER_AVAILABLE = False
 
 
@@ -46,37 +47,57 @@ class ScrapeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        if not SCRAPER_AVAILABLE:
-            return Response(
-                {"detail": "Recipe scraping is not available on this server."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
         serializer = ScrapeRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         url = serializer.validated_data["url"]
 
-        # --- Scrape ---
+        # --- Fetch ---
         # Fetch the page ourselves with a browser User-Agent (many sites and
-        # their image CDNs block requests without one), then parse the HTML.
+        # their image CDNs block requests without one).
         try:
             html = fetch_page_html(url)
-            scraper = scrape_html(html, org_url=url, wild_mode=True)
-        except WebsiteNotImplementedError:
+        except requests.HTTPError as exc:
+            code = exc.response.status_code if exc.response is not None else None
+            if code in (401, 403, 429):
+                # Cloudflare / anti-bot challenge or rate limiting.
+                return Response(
+                    {
+                        "detail": (
+                            "This website blocks automated recipe imports. "
+                            "Try copying the recipe in manually, or use a different site."
+                        )
+                    },
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
             return Response(
-                {"detail": "This website is not supported by the recipe scraper."},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
-        except NoSchemaFoundInWildMode:
-            return Response(
-                {"detail": "No recipe data could be found at this URL."},
+                {"detail": "The page returned an error and could not be fetched."},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
         except Exception:
             return Response(
-                {"detail": "Failed to fetch or parse the recipe from the provided URL."},
+                {"detail": "Failed to fetch the page at the provided URL."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        # --- Parse ---
+        # Prefer recipe_scrapers (broad site coverage). If it is unavailable or
+        # errors on the page's structured data, fall back to parsing schema.org
+        # JSON-LD ourselves.
+        scraper = None
+        if SCRAPER_AVAILABLE:
+            try:
+                scraper = scrape_html(html, org_url=url, wild_mode=True)
+            except Exception:
+                scraper = None
+
+        if scraper is None:
+            scraper = parse_recipe_jsonld(html)
+
+        if scraper is None:
+            return Response(
+                {"detail": "No recipe data could be found at this URL."},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 

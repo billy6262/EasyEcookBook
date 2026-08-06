@@ -1,5 +1,6 @@
 import { Link, Outlet } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import ThemeToggle from "./ThemeToggle";
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -37,7 +38,14 @@ export default function Layout() {
               >
                 Events
               </Link>
+              <Link
+                to="/about"
+                className="text-sm text-gray-600 hover:text-gray-900"
+              >
+                About
+              </Link>
               <span className="text-sm text-gray-400">{user?.email}</span>
+              <ThemeToggle />
               <button
                 onClick={logout}
                 className="text-sm text-red-500 hover:text-red-700"

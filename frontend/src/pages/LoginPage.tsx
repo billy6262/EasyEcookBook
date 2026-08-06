@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useAuth } from "../contexts/AuthContext";
+import ThemeToggle from "../components/ThemeToggle";
 
 const schema = z.object({
   email: z.string().email("Invalid email address"),
@@ -33,7 +34,10 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="bg-white p-8 rounded-lg shadow-sm border max-w-md w-full">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Sign In</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">Sign In</h1>
+          <ThemeToggle />
+        </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
@@ -94,6 +98,11 @@ export default function LoginPage() {
             className="text-gray-400 hover:text-gray-600"
           >
             Forgot password?
+          </Link>
+        </p>
+        <p className="mt-4 pt-4 border-t text-sm text-center text-gray-400">
+          <Link to="/about" className="hover:text-green-600">
+            About this project ↗
           </Link>
         </p>
       </div>

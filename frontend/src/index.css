@@ -7,3 +7,66 @@
     font-family: system-ui, -apple-system, sans-serif;
   }
 }
+
+/*
+ * Dark mode (class strategy).
+ *
+ * The app uses literal Tailwind utility classes throughout, so instead of
+ * adding `dark:` variants to every element we remap the small, consistent
+ * palette the app relies on. Backgrounds/text use normal `.dark .<class>`
+ * overrides (higher specificity than the single utility class). The DEFAULT
+ * border colour uses `:where(html.dark)` — zero specificity — so it beats
+ * Preflight's `*` default but still loses to explicit colour utilities like
+ * `border-green-200`, keeping intentional coloured borders intact.
+ */
+:where(html.dark) *,
+:where(html.dark) ::before,
+:where(html.dark) ::after {
+  border-color: #374151; /* gray-700 */
+}
+
+html.dark body {
+  background-color: #111827; /* gray-900 */
+  color: #e5e7eb; /* gray-200 */
+}
+
+/* Surfaces */
+.dark .bg-white { background-color: #1f2937; }   /* gray-800 */
+.dark .bg-gray-50 { background-color: #111827; }  /* gray-900 */
+.dark .bg-gray-100 { background-color: #374151; } /* gray-700 */
+.dark .bg-gray-200 { background-color: #374151; } /* gray-700 (skeletons) */
+
+/* Text */
+.dark .text-gray-900 { color: #f9fafb; }
+.dark .text-gray-800 { color: #f3f4f6; }
+.dark .text-gray-700 { color: #e5e7eb; }
+.dark .text-gray-600 { color: #d1d5db; }
+.dark .text-gray-500 { color: #9ca3af; }
+.dark .text-gray-400 { color: #6b7280; }
+.dark .text-gray-300 { color: #4b5563; }
+.dark .text-gray-200 { color: #374151; }
+
+/* Explicit light-gray borders → dark */
+.dark .border-gray-100,
+.dark .border-gray-200,
+.dark .border-gray-300 { border-color: #374151; }
+
+.dark .divide-y > :not([hidden]) ~ :not([hidden]) { border-color: #374151; }
+
+/* Light hover backgrounds that would look wrong on dark */
+.dark .hover\:bg-gray-50:hover { background-color: #374151; }
+.dark .hover\:bg-gray-100:hover { background-color: #4b5563; }
+
+/* Form controls */
+.dark input,
+.dark textarea,
+.dark select {
+  background-color: #1f2937;
+  color: #f3f4f6;
+  border-color: #374151;
+}
+.dark input::placeholder,
+.dark textarea::placeholder { color: #6b7280; }
+
+/* Translucent white overlays used for small floating controls */
+.dark .bg-white\/90 { background-color: rgba(31, 41, 55, 0.9); }

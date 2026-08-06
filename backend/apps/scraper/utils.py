@@ -12,6 +12,7 @@ import re
 import socket
 import uuid
 from fractions import Fraction
+from html import unescape as _html_unescape
 from urllib.parse import urlparse
 
 import requests
@@ -456,3 +457,154 @@ def parse_ingredient_str(ingredient_str: str) -> dict:
         "ingredient_name": ingredient_name,
         "notes": notes,
     }
+
+
+# ---------------------------------------------------------------------------
+# schema.org JSON-LD fallback parser
+# ---------------------------------------------------------------------------
+# Used when `recipe_scrapers` is unavailable or crashes on a page's structured
+# data. Most recipe sites embed a standard schema.org/Recipe object in a
+# <script type="application/ld+json"> tag, so we can parse it directly.
+
+_ISO_DURATION_RE = re.compile(
+    r"^P(?:(?P<w>\d+)W)?(?:(?P<d>\d+)D)?"
+    r"(?:T(?:(?P<h>\d+)H)?(?:(?P<m>\d+)M)?(?:(?P<s>\d+)S)?)?$",
+    re.IGNORECASE,
+)
+
+
+def _iso_duration_to_minutes(value) -> int | None:
+    """Convert an ISO-8601 duration (e.g. 'PT1H30M') to whole minutes."""
+    if not value or not isinstance(value, str):
+        return None
+    m = _ISO_DURATION_RE.fullmatch(value.strip())
+    if not m:
+        return None
+    weeks = int(m.group("w") or 0)
+    days = int(m.group("d") or 0)
+    hours = int(m.group("h") or 0)
+    minutes = int(m.group("m") or 0)
+    seconds = int(m.group("s") or 0)
+    total = weeks * 10080 + days * 1440 + hours * 60 + minutes + seconds // 60
+    return total or None
+
+
+def _first(value):
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+def _jsonld_image(value) -> str | None:
+    value = _first(value)
+    if isinstance(value, dict):
+        return value.get("url")
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def _jsonld_instructions(value) -> list[str]:
+    """Flatten recipeInstructions (string / list / HowToStep / HowToSection)."""
+    steps: list[str] = []
+
+    def walk(node):
+        if isinstance(node, str):
+            text = node.strip()
+            if text:
+                steps.append(text)
+        elif isinstance(node, dict):
+            node_type = str(node.get("@type", ""))
+            if "HowToSection" in node_type:
+                walk(node.get("itemListElement", []))
+            else:
+                text = node.get("text") or node.get("name")
+                if text and str(text).strip():
+                    steps.append(str(text).strip())
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+
+    walk(value)
+    return steps
+
+
+def _find_recipe_node(node):
+    """Recursively locate a schema.org Recipe object (handles @graph/lists)."""
+    if isinstance(node, dict):
+        node_type = node.get("@type")
+        types = node_type if isinstance(node_type, list) else [node_type]
+        if any(str(t).lower() == "recipe" for t in types if t):
+            return node
+        for value in node.values():
+            found = _find_recipe_node(value)
+            if found:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = _find_recipe_node(item)
+            if found:
+                return found
+    return None
+
+
+class _JsonLdRecipe:
+    """
+    Adapter exposing the same method surface the view expects from a
+    `recipe_scrapers` scraper, backed by a schema.org Recipe dict.
+    """
+
+    def __init__(self, data: dict):
+        self._d = data
+
+    def title(self) -> str:
+        return _html_unescape(str(self._d.get("name") or "")).strip()
+
+    def description(self) -> str:
+        return _html_unescape(str(self._d.get("description") or "")).strip()
+
+    def prep_time(self) -> int | None:
+        return _iso_duration_to_minutes(self._d.get("prepTime"))
+
+    def cook_time(self) -> int | None:
+        return _iso_duration_to_minutes(self._d.get("cookTime"))
+
+    def total_time(self) -> int | None:
+        return _iso_duration_to_minutes(self._d.get("totalTime"))
+
+    def yields(self) -> str | None:
+        value = self._d.get("recipeYield")
+        value = _first(value) if isinstance(value, list) else value
+        return str(value) if value not in (None, "") else None
+
+    def image(self) -> str | None:
+        return _jsonld_image(self._d.get("image"))
+
+    def ingredients(self) -> list[str]:
+        raw = self._d.get("recipeIngredient") or self._d.get("ingredients") or []
+        return [_html_unescape(str(i)) for i in raw if i and str(i).strip()]
+
+    def instructions_list(self) -> list[str]:
+        return [_html_unescape(s) for s in _jsonld_instructions(self._d.get("recipeInstructions"))]
+
+
+def parse_recipe_jsonld(html_text: str):
+    """
+    Parse a schema.org/Recipe from a page's JSON-LD.
+
+    Returns a `_JsonLdRecipe` (duck-typed like a recipe_scrapers scraper) or
+    None if no recipe could be found. Never raises.
+    """
+    try:
+        import extruct
+
+        data = extruct.extract(html_text, syntaxes=["json-ld"], uniform=True)
+        items = data.get("json-ld", [])
+    except Exception:
+        logger.exception("JSON-LD extraction failed")
+        return None
+
+    recipe = _find_recipe_node(items)
+    if not recipe:
+        return None
+    return _JsonLdRecipe(recipe)
