@@ -15,6 +15,11 @@ import ShoppingListPage from "./pages/planner/ShoppingListPage";
 import CollectionsListPage from "./pages/collections/CollectionsListPage";
 import CollectionFormPage from "./pages/collections/CollectionFormPage";
 import CollectionDetailPage from "./pages/collections/CollectionDetailPage";
+import EventsListPage from "./pages/events/EventsListPage";
+import EventFormPage from "./pages/events/EventFormPage";
+import EventJoinPage from "./pages/events/EventJoinPage";
+import EventBoardPage from "./pages/events/EventBoardPage";
+import EventAccessGuard from "./components/EventAccessGuard";
 
 export default function App() {
   return (
@@ -22,6 +27,12 @@ export default function App() {
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+
+      {/* Event invite landing + guest-capable board (standalone, no app shell) */}
+      <Route path="/events/join/:token" element={<EventJoinPage />} />
+      <Route element={<EventAccessGuard />}>
+        <Route path="/events/:id" element={<EventBoardPage />} />
+      </Route>
 
       {/* Authenticated routes */}
       <Route element={<ProtectedRoute />}>
@@ -48,6 +59,11 @@ export default function App() {
           <Route path="/collections/new" element={<CollectionFormPage />} />
           <Route path="/collections/:id" element={<CollectionDetailPage />} />
           <Route path="/collections/:id/edit" element={<CollectionFormPage />} />
+
+          {/* Event routes (authenticated management) */}
+          <Route path="/events" element={<EventsListPage />} />
+          <Route path="/events/new" element={<EventFormPage />} />
+          <Route path="/events/:id/edit" element={<EventFormPage />} />
 
           {/* Catch-all: unknown authenticated paths */}
           <Route

@@ -31,13 +31,12 @@ export default function Layout() {
               >
                 Collections
               </Link>
-              <span
-                className="text-sm text-gray-300 cursor-not-allowed"
-                title="Events — coming soon"
-                aria-disabled="true"
+              <Link
+                to="/events"
+                className="text-sm text-gray-600 hover:text-gray-900"
               >
                 Events
-              </span>
+              </Link>
               <span className="text-sm text-gray-400">{user?.email}</span>
               <button
                 onClick={logout}

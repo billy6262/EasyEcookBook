@@ -68,7 +68,6 @@ def validate_scrape_url(url: str) -> None:
 
 
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
-_MAX_HTML_BYTES = 5 * 1024 * 1024  # 5 MB
 _ALLOWED_IMAGE_TYPES = {
     "image/jpeg": ".jpg",
     "image/jpg": ".jpg",
@@ -318,8 +317,14 @@ def _normalize_unicode_fractions(s: str) -> str:
 
 
 def _fmt_qty(value: float) -> str:
-    """Format a numeric quantity, dropping a trailing '.0' for whole numbers."""
-    return str(int(value)) if value == int(value) else f"{value:.4g}"
+    """
+    Format a numeric quantity for the recipe's DecimalField(decimal_places=3):
+    whole numbers drop the decimal, others are rounded to at most 3 places with
+    trailing zeros stripped (e.g. 1/3 -> '0.333', 1.5 -> '1.5').
+    """
+    if value == int(value):
+        return str(int(value))
+    return f"{value:.3f}".rstrip("0").rstrip(".")
 
 
 def _token_to_qty(tok: str) -> str:

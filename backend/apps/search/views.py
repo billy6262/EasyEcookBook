@@ -1,4 +1,5 @@
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
+from django.db.models import Q
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -34,7 +35,10 @@ class RecipeSearchView(APIView):
         recipes = (
             Recipe.objects.annotate(rank=SearchRank(search_vector, search_query))
             .filter(rank__gte=0.05)
-            .filter(visibility=Recipe.VISIBILITY_PUBLIC)
+            .filter(
+                Q(visibility=Recipe.VISIBILITY_PUBLIC)
+                | Q(created_by=request.user)
+            )
             .order_by("-rank")
             .distinct()[:30]
         )

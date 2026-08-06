@@ -27,8 +27,8 @@ apiClient.interceptors.response.use(
         await apiClient.post("/auth/token/refresh/");
         return apiClient(original);
       } catch {
-        // Refresh also failed — redirect to login
-        window.location.href = "/login";
+        // Refresh failed — leave redirection to ProtectedRoute so that public
+        // pages (e.g. guest event access) aren't forced to the login screen.
       }
     }
     return Promise.reject(error);

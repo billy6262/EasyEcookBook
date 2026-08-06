@@ -5,6 +5,7 @@ from apps.events.models import (
     EventDish,
     EventDishFulfillment,
     EventIngredient,
+    EventInvite,
     EventParticipant,
 )
 
@@ -64,10 +65,24 @@ class EventDishSerializer(serializers.ModelSerializer):
 
 class EventParticipantSerializer(serializers.ModelSerializer):
     display_name = serializers.ReadOnlyField()
+    is_guest = serializers.SerializerMethodField()
 
     class Meta:
         model = EventParticipant
-        fields = ["id", "display_name", "role", "joined_at"]
+        fields = ["id", "user", "display_name", "role", "is_guest", "joined_at"]
+        read_only_fields = ["user", "display_name", "is_guest", "joined_at"]
+
+    def get_is_guest(self, obj) -> bool:
+        return obj.user_id is None
+
+
+class EventInviteSerializer(serializers.ModelSerializer):
+    is_valid = serializers.ReadOnlyField()
+
+    class Meta:
+        model = EventInvite
+        fields = ["token", "max_uses", "uses_count", "expires_at", "is_valid", "created_at"]
+        read_only_fields = ["token", "uses_count", "is_valid", "created_at"]
 
 
 class EventListSerializer(serializers.ModelSerializer):
@@ -86,10 +101,44 @@ class EventListSerializer(serializers.ModelSerializer):
 class EventDetailSerializer(serializers.ModelSerializer):
     dishes = EventDishSerializer(many=True, read_only=True)
     participants = EventParticipantSerializer(many=True, read_only=True)
+    my_participant_id = serializers.SerializerMethodField()
+    my_role = serializers.SerializerMethodField()
+    is_coordinator = serializers.SerializerMethodField()
 
     class Meta:
         model = Event
         fields = [
             "id", "title", "description", "event_date", "location",
-            "visibility", "dishes", "participants", "created_at", "updated_at",
+            "visibility", "dishes", "participants",
+            "my_participant_id", "my_role", "is_coordinator",
+            "created_at", "updated_at",
         ]
+
+    def _me(self, obj: Event):
+        """Return the requesting user's/guest's EventParticipant for this event."""
+        request = self.context.get("request")
+        if request is None:
+            return None
+        guest = getattr(request, "guest_participant", None)
+        if guest is not None and guest.event_id == obj.id:
+            return guest
+        user = getattr(request, "user", None)
+        if user and user.is_authenticated:
+            return next(
+                (p for p in obj.participants.all() if p.user_id == user.id),
+                None,
+            )
+        return None
+
+    def get_my_participant_id(self, obj: Event):
+        me = self._me(obj)
+        return me.id if me else None
+
+    def get_my_role(self, obj: Event):
+        me = self._me(obj)
+        return me.role if me else None
+
+    def get_is_coordinator(self, obj: Event) -> bool:
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        return bool(user and user.is_authenticated and obj.coordinator_id == user.id)

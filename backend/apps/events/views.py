@@ -1,8 +1,11 @@
+import decimal
 import uuid
 
 from django.db import transaction
+from django.db.models import Q
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from apps.events import notifications
@@ -14,10 +17,13 @@ from apps.events.models import (
     EventInvite,
     EventParticipant,
 )
+from apps.events.permissions import EventAccessPermission
 from apps.events.serializers import (
     EventDetailSerializer,
     EventDishSerializer,
+    EventInviteSerializer,
     EventListSerializer,
+    EventParticipantSerializer,
 )
 from apps.recipes.models import Recipe, RecipeIngredient
 
@@ -29,14 +35,56 @@ def _resolve_participant(request) -> EventParticipant | None:
 
 class EventViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None  # lists are small; return plain arrays
 
     def get_serializer_class(self):
         if self.action == "list":
             return EventListSerializer
         return EventDetailSerializer
 
+    def get_permissions(self):
+        # Open to anyone (used by the public join / preview flow).
+        if self.action in ("join_guest", "invite_preview"):
+            return [permissions.AllowAny()]
+        # Read + participation actions allow authenticated users OR resolved guests.
+        if self.action in (
+            "retrieve", "dishes", "fulfill_dish", "claim_ingredient",
+            "save_fulfillment_as_recipe", "leave",
+        ):
+            return [EventAccessPermission()]
+        # Everything else (list, create, join, invites, management, update, delete)
+        # requires a real account.
+        return [permissions.IsAuthenticated()]
+
     def get_queryset(self):
-        return Event.objects.filter(coordinator=self.request.user)
+        user = self.request.user
+        if self.action == "list":
+            if not user.is_authenticated:
+                return Event.objects.none()
+            return (
+                Event.objects.filter(Q(coordinator=user) | Q(participants__user=user))
+                .distinct()
+                .order_by("event_date")
+            )
+        # Detail routes: broad base queryset; access is enforced by
+        # EventAccessPermission (reads) and _require_coordinator (mutations).
+        return Event.objects.all()
+
+    def _require_coordinator(self, event: Event):
+        if not self.request.user.is_authenticated or event.coordinator_id != self.request.user.id:
+            raise PermissionDenied("Only the coordinator can modify this event.")
+
+    def update(self, request, *args, **kwargs):
+        self._require_coordinator(self.get_object())
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        self._require_coordinator(self.get_object())
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self._require_coordinator(self.get_object())
+        return super().destroy(request, *args, **kwargs)
 
     @transaction.atomic
     def perform_create(self, serializer):
@@ -131,24 +179,71 @@ class EventViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED,
         )
 
-    # ── POST /api/events/{id}/invites/ ─────────────────────────────────────────
-    @action(detail=True, methods=["post"])
+    # ── GET/POST /api/events/{id}/invites/ ─────────────────────────────────────
+    @action(detail=True, methods=["get", "post"])
     def invites(self, request, pk=None):
         event = self.get_object()
         if event.coordinator != request.user:
             return Response(
-                {"detail": "Only the coordinator can create invites."},
+                {"detail": "Only the coordinator can manage invites."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+
+        if request.method == "GET":
+            qs = event.invites.order_by("-created_at")
+            return Response(EventInviteSerializer(qs, many=True).data)
+
         invite = EventInvite.objects.create(
             event=event,
             max_uses=request.data.get("max_uses") or None,
             expires_at=request.data.get("expires_at") or None,
         )
-        return Response(
-            {"token": str(invite.token), "max_uses": invite.max_uses, "expires_at": invite.expires_at},
-            status=status.HTTP_201_CREATED,
-        )
+        return Response(EventInviteSerializer(invite).data, status=status.HTTP_201_CREATED)
+
+    # ── DELETE /api/events/{id}/invites/{token}/ ───────────────────────────────
+    @action(detail=True, methods=["delete"], url_path=r"invites/(?P<token>[0-9a-f-]+)")
+    def revoke_invite(self, request, pk=None, token=None):
+        event = self.get_object()
+        if event.coordinator != request.user:
+            return Response(
+                {"detail": "Only the coordinator can manage invites."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            EventInvite.objects.filter(event=event, token=uuid.UUID(str(token))).delete()
+        except ValueError:
+            return Response({"detail": "Invalid token."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # ── GET /api/events/invite/{token}/ (public preview) ───────────────────────
+    @action(detail=False, methods=["get"], url_path=r"invite/(?P<token>[0-9a-f-]+)")
+    def invite_preview(self, request, token=None):
+        """Public: minimal event info for an invite landing page (before joining)."""
+        try:
+            invite = EventInvite.objects.select_related("event").get(token=uuid.UUID(str(token)))
+        except (EventInvite.DoesNotExist, ValueError):
+            return Response({"detail": "Invalid invite."}, status=status.HTTP_404_NOT_FOUND)
+
+        event = invite.event
+        already_participant = False
+        if request.user.is_authenticated:
+            already_participant = EventParticipant.objects.filter(
+                event=event, user=request.user
+            ).exists()
+
+        return Response({
+            "invite_valid": invite.is_valid,
+            "event": {
+                "id": event.id,
+                "title": event.title,
+                "description": event.description,
+                "event_date": event.event_date,
+                "location": event.location,
+                "coordinator_name": event.coordinator.get_full_name() or event.coordinator.email,
+                "participant_count": event.participants.count(),
+            },
+            "already_participant": already_participant,
+        })
 
     # ── POST /api/events/{id}/dishes/ ─────────────────────────────────────────
     @action(detail=True, methods=["post", "get"])
@@ -185,13 +280,25 @@ class EventViewSet(viewsets.ModelViewSet):
             if dish_type == EventDish.DISH_TYPE_LINKED and recipe_id:
                 try:
                     recipe = Recipe.objects.get(pk=recipe_id)
-                    ratio = dish.servings / (recipe.servings or 1)
-                    for ri in RecipeIngredient.objects.filter(recipe=recipe):
+                    # Decimal arithmetic throughout (recipe quantities are Decimal;
+                    # mixing with float raises TypeError).
+                    ratio = decimal.Decimal(str(dish.servings)) / decimal.Decimal(
+                        str(recipe.servings or 1)
+                    )
+                    for ri in RecipeIngredient.objects.filter(recipe=recipe).select_related(
+                        "ingredient"
+                    ):
+                        scaled_qty = None
+                        if ri.quantity is not None:
+                            scaled_qty = (ri.quantity * ratio).quantize(
+                                decimal.Decimal("0.001"),
+                                rounding=decimal.ROUND_HALF_UP,
+                            )
                         EventIngredient.objects.create(
                             event=event,
                             dish=dish,
                             ingredient_name=ri.ingredient.name,
-                            quantity=round(ri.quantity * ratio, 3) if ri.quantity else None,
+                            quantity=scaled_qty,
                             unit=ri.unit,
                             is_auto_generated=True,
                         )
@@ -314,3 +421,78 @@ class EventViewSet(viewsets.ModelViewSet):
                 )
 
         return Response({"recipe_id": recipe.id}, status=status.HTTP_201_CREATED)
+
+    # ── PATCH/DELETE /api/events/{id}/dishes/{dish_id}/ ────────────────────────
+    @action(detail=True, methods=["patch", "delete"], url_path=r"dishes/(?P<dish_id>\d+)")
+    def manage_dish(self, request, pk=None, dish_id=None):
+        event = self.get_object()
+        try:
+            dish = EventDish.objects.get(pk=dish_id, event=event)
+        except EventDish.DoesNotExist:
+            return Response({"detail": "Dish not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # The coordinator, or the participant who added the dish, may manage it.
+        is_coord = event.coordinator_id == getattr(request.user, "id", None)
+        participant = _resolve_participant(request)
+        if participant is None and request.user.is_authenticated:
+            participant = EventParticipant.objects.filter(event=event, user=request.user).first()
+        is_adder = dish.added_by_id is not None and participant is not None and dish.added_by_id == participant.id
+        if not (is_coord or is_adder):
+            return Response(
+                {"detail": "You cannot modify this dish."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if request.method == "DELETE":
+            dish.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        # PATCH — limited editable fields
+        for field in ("custom_name", "request_description", "notes"):
+            if field in request.data:
+                setattr(dish, field, request.data[field])
+        if "servings" in request.data:
+            dish.servings = request.data["servings"]
+        dish.save()
+        return Response(EventDishSerializer(dish).data)
+
+    # ── DELETE /api/events/{id}/participants/{pid}/ ────────────────────────────
+    @action(detail=True, methods=["delete"], url_path=r"participants/(?P<pid>\d+)")
+    def remove_participant(self, request, pk=None, pid=None):
+        event = self.get_object()
+        if event.coordinator_id != request.user.id:
+            return Response(
+                {"detail": "Only the coordinator can remove participants."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            participant = EventParticipant.objects.get(pk=pid, event=event)
+        except EventParticipant.DoesNotExist:
+            return Response({"detail": "Participant not found."}, status=status.HTTP_404_NOT_FOUND)
+        if participant.role == EventParticipant.ROLE_COORDINATOR:
+            return Response(
+                {"detail": "The coordinator cannot be removed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        participant.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # ── POST /api/events/{id}/leave/ ───────────────────────────────────────────
+    @action(detail=True, methods=["post"])
+    def leave(self, request, pk=None):
+        event = self.get_object()
+        participant = _resolve_participant(request)
+        if participant is None and request.user.is_authenticated:
+            participant = EventParticipant.objects.filter(event=event, user=request.user).first()
+        if participant is None:
+            return Response(
+                {"detail": "You are not a participant of this event."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if participant.role == EventParticipant.ROLE_COORDINATOR:
+            return Response(
+                {"detail": "The coordinator cannot leave; delete the event instead."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        participant.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
