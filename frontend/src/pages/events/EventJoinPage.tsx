@@ -4,6 +4,19 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { eventsApi, setGuestToken } from "../../api/events";
 import { useAuth } from "../../contexts/AuthContext";
 
+/**
+ * Centered card wrapper. Defined at module scope (NOT inside the component) so
+ * it isn't re-created on every render — otherwise the inputs inside would
+ * remount on each keystroke and lose focus.
+ */
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white border rounded-2xl shadow-sm p-8">{children}</div>
+    </div>
+  );
+}
+
 export default function EventJoinPage() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
@@ -36,12 +49,6 @@ export default function EventJoinPage() {
     },
     onError: () => setError("Couldn't join. Please check your details and try again."),
   });
-
-  const Shell = ({ children }: { children: React.ReactNode }) => (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white border rounded-2xl shadow-sm p-8">{children}</div>
-    </div>
-  );
 
   if (isLoading) {
     return (
