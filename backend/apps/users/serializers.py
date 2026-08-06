@@ -24,8 +24,11 @@ class UserDetailsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["pk", "email", "username", "first_name", "last_name", "profile"]
-        read_only_fields = ["email"]
+        fields = [
+            "pk", "email", "username", "first_name", "last_name",
+            "is_staff", "is_superuser", "is_demo", "profile",
+        ]
+        read_only_fields = ["email", "is_staff", "is_superuser", "is_demo"]
 
 
 class CustomRegisterSerializer(serializers.Serializer):
@@ -55,6 +58,16 @@ class CustomRegisterSerializer(serializers.Serializer):
     def validate(self, data):
         if data["password1"] != data["password2"]:
             raise serializers.ValidationError({"password2": "Passwords do not match."})
+
+        # Enforce invite-only registration when configured in the admin dashboard.
+        from apps.core.models import SiteSettings
+
+        site = SiteSettings.load()
+        if site.registration_mode == SiteSettings.REGISTRATION_INVITE_ONLY:
+            if not data.get("invite_token"):
+                raise serializers.ValidationError(
+                    {"invite_token": "Registration is invite-only. A valid invite token is required."}
+                )
         return data
 
     def validate_invite_token(self, value: str) -> str:

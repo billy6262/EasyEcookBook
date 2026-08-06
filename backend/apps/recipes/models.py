@@ -84,6 +84,9 @@ class Recipe(models.Model):
         related_name="forks",
     )
     source_url = models.URLField(null=True, blank=True)
+    # Set by an admin/moderator to hide content from public listings without
+    # deleting it (distinct from the owner's own public/private `visibility`).
+    is_hidden = models.BooleanField(default=False)
     # Soft reference to the event fulfillment this recipe was saved from, used to
     # avoid saving the same brought-dish twice for the same user (not a FK, to
     # keep the recipes app decoupled from the events app).
@@ -214,6 +217,8 @@ class Comment(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="comments"
     )
     body = models.TextField()
+    # Set by an admin/moderator to hide the comment from public view.
+    is_hidden = models.BooleanField(default=False)
     parent = models.ForeignKey(
         "self",
         null=True,

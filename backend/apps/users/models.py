@@ -45,6 +45,8 @@ class User(AbstractUser):
     objects = UserManager()
 
     email = models.EmailField(unique=True)
+    # Marks the shared read-only demo account (writes blocked by middleware).
+    is_demo = models.BooleanField(default=False)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []  # removes email from createsuperuser prompts

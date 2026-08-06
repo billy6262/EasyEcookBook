@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "dj_rest_auth.registration",
     "storages",
     # Local
+    "apps.core.apps.CoreConfig",
     "apps.users.apps.UsersConfig",
     "apps.recipes.apps.RecipesConfig",
     "apps.events.apps.EventsConfig",
@@ -59,6 +60,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
     "apps.events.middleware.GuestTokenMiddleware",
+    "apps.core.middleware.DemoReadOnlyMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -110,6 +112,10 @@ ACCOUNT_AUTHENTICATION_METHOD = "email"
 ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_EMAIL_VERIFICATION = env("ACCOUNT_EMAIL_VERIFICATION")
 ACCOUNT_UNIQUE_EMAIL = True
+
+# ── Read-only demo ─────────────────────────────────────────────────────────────
+# The demo account browses this user's content so recruiters see a populated app.
+DEMO_SHOWCASE_EMAIL = env("DEMO_SHOWCASE_EMAIL", default="andrew.dorchak98@gmail.com")
 
 # ── REST Framework ─────────────────────────────────────────────────────────────
 REST_FRAMEWORK = {

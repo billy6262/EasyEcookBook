@@ -1,5 +1,6 @@
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
+from apps.core.demo import demo_can_read_owner
 from apps.recipes.models import Collection, CollectionMembership, Recipe
 
 
@@ -14,6 +15,9 @@ class IsRecipeOwnerOrReadOnly(BasePermission):
     def has_object_permission(self, request, view, obj: Recipe):
         if request.method in SAFE_METHODS:
             if obj.visibility == Recipe.VISIBILITY_PUBLIC:
+                return True
+            # The read-only demo may view the showcase user's private recipes.
+            if demo_can_read_owner(request, obj.created_by_id):
                 return True
             return obj.created_by == request.user
 
@@ -57,5 +61,8 @@ class IsCollectionMember(BasePermission):
     def has_object_permission(self, request, view, obj: Collection):
         role = collection_role(obj, request.user)
         if request.method in SAFE_METHODS:
-            return role is not None or obj.visibility == Collection.VISIBILITY_PUBLIC
+            if role is not None or obj.visibility == Collection.VISIBILITY_PUBLIC:
+                return True
+            # The read-only demo may view the showcase user's private collections.
+            return demo_can_read_owner(request, obj.created_by_id)
         return role == CollectionMembership.ROLE_OWNER

@@ -6,6 +6,9 @@ export interface User {
   username: string;
   first_name: string;
   last_name: string;
+  is_staff: boolean;
+  is_superuser: boolean;
+  is_demo: boolean;
 }
 
 export const authApi = {
@@ -13,6 +16,8 @@ export const authApi = {
 
   login: (email: string, password: string) =>
     apiClient.post("/auth/login/", { email, password }),
+
+  demoLogin: () => apiClient.post("/auth/demo-login/"),
 
   logout: () => apiClient.post("/auth/logout/"),
 

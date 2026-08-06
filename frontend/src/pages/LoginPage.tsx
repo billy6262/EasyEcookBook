@@ -13,7 +13,7 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, demoLogin } = useAuth();
   const navigate = useNavigate();
   const {
     register,
@@ -28,6 +28,15 @@ export default function LoginPage() {
       navigate("/");
     } catch {
       setError("root", { message: "Invalid email or password." });
+    }
+  };
+
+  const onDemo = async () => {
+    try {
+      await demoLogin();
+      navigate("/");
+    } catch {
+      setError("root", { message: "The demo is currently unavailable." });
     }
   };
 
@@ -82,6 +91,15 @@ export default function LoginPage() {
             {isSubmitting ? "Signing in…" : "Sign In"}
           </button>
         </form>
+
+        <button
+          type="button"
+          onClick={onDemo}
+          disabled={isSubmitting}
+          className="mt-3 w-full border border-green-600 text-green-700 py-2 px-4 rounded-md text-sm font-medium hover:bg-green-50 disabled:opacity-50 transition-colors"
+        >
+          View live demo (read-only)
+        </button>
 
         <p className="mt-4 text-sm text-center text-gray-500">
           Don&apos;t have an account?{" "}

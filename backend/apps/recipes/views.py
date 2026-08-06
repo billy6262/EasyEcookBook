@@ -6,6 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 
+from apps.core.demo import effective_user
 from apps.recipes.models import (
     Category,
     Collection,
@@ -48,16 +49,17 @@ class RecipeViewSet(viewsets.ModelViewSet):
         return RecipeDetailSerializer
 
     def get_queryset(self):
-        user = self.request.user
+        user = effective_user(self.request)
         params = self.request.query_params
 
         if params.get("mine") == "true":
             qs = Recipe.objects.filter(created_by=user)
         else:
-            qs = (
-                Recipe.objects.filter(visibility=Recipe.VISIBILITY_PUBLIC)
-                | Recipe.objects.filter(created_by=user)
-            ).distinct()
+            public = Recipe.objects.filter(visibility=Recipe.VISIBILITY_PUBLIC)
+            # Hide moderator-hidden recipes from everyone except staff.
+            if not user.is_staff:
+                public = public.exclude(is_hidden=True)
+            qs = (public | Recipe.objects.filter(created_by=user)).distinct()
 
         category_id = params.get("category")
         if category_id and category_id.isdigit():
@@ -262,6 +264,9 @@ class RecipeViewSet(viewsets.ModelViewSet):
         recipe = self.get_object()
         if request.method == "GET":
             qs = recipe.comments.filter(parent__isnull=True).prefetch_related("replies")
+            # Hide moderator-hidden comments from non-staff viewers.
+            if not request.user.is_staff:
+                qs = qs.filter(is_hidden=False)
             return Response(CommentSerializer(qs, many=True).data)
         serializer = CommentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -302,7 +307,7 @@ class CollectionViewSet(viewsets.ModelViewSet):
         return CollectionSerializer
 
     def get_queryset(self):
-        user = self.request.user
+        user = effective_user(self.request)
         base = Collection.objects.prefetch_related("memberships", "collection_recipes")
 
         # ?scope=public → discover other users' public collections

@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
+from apps.core.demo import effective_user
 from apps.events import notifications
 from apps.events.models import (
     Event,
@@ -57,7 +58,7 @@ class EventViewSet(viewsets.ModelViewSet):
         return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
-        user = self.request.user
+        user = effective_user(self.request)
         if self.action == "list":
             if not user.is_authenticated:
                 return Event.objects.none()

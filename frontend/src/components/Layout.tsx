@@ -1,12 +1,14 @@
 import { Link, Outlet } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import ThemeToggle from "./ThemeToggle";
+import DemoBanner from "./DemoBanner";
 
 export default function Layout() {
   const { user, logout } = useAuth();
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <DemoBanner />
       <nav className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
@@ -44,6 +46,14 @@ export default function Layout() {
               >
                 About
               </Link>
+              {user?.is_staff && (
+                <Link
+                  to="/admin"
+                  className="text-sm font-medium text-green-600 hover:text-green-700"
+                >
+                  Admin
+                </Link>
+              )}
               <span className="text-sm text-gray-400">{user?.email}</span>
               <ThemeToggle />
               <button

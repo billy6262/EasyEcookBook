@@ -7,6 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
+from apps.core.demo import effective_user
 from apps.planner.models import CookingLog, PlannedMeal, PlannedMealRecipe, ShoppingItem
 from apps.planner.serializers import (
     CookingLogSerializer,
@@ -28,7 +29,7 @@ class PlannedMealViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = PlannedMeal.objects.filter(
-            created_by=self.request.user
+            created_by=effective_user(self.request)
         ).prefetch_related("meal_recipes__recipe", "cooking_logs")
 
         status_filter = self.request.query_params.get("status")
@@ -240,7 +241,7 @@ class ShoppingItemViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return (
-            ShoppingItem.objects.filter(user=self.request.user)
+            ShoppingItem.objects.filter(user=effective_user(self.request))
             .filter(
                 dj_models.Q(planned_meal__isnull=True)
                 | ~dj_models.Q(planned_meal__status=PlannedMeal.STATUS_COOKED)
@@ -287,7 +288,7 @@ class CookingLogViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
-        return CookingLog.objects.filter(user=self.request.user).select_related(
+        return CookingLog.objects.filter(user=effective_user(self.request)).select_related(
             "planned_meal"
         )
 

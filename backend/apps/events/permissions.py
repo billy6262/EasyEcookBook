@@ -1,5 +1,6 @@
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
+from apps.core.demo import demo_can_read_owner
 from apps.events.models import Event, EventParticipant
 
 
@@ -24,6 +25,10 @@ class EventAccessPermission(BasePermission):
 
     def has_object_permission(self, request, view, obj: Event):
         if obj.visibility == Event.VISIBILITY_PUBLIC and request.method in SAFE_METHODS:
+            return True
+
+        # The read-only demo may view the showcase user's events.
+        if request.method in SAFE_METHODS and demo_can_read_owner(request, obj.coordinator_id):
             return True
 
         user = request.user

@@ -21,6 +21,14 @@ import EventFormPage from "./pages/events/EventFormPage";
 import EventJoinPage from "./pages/events/EventJoinPage";
 import EventBoardPage from "./pages/events/EventBoardPage";
 import EventAccessGuard from "./components/EventAccessGuard";
+import AdminRoute from "./components/AdminRoute";
+import AdminLayout from "./pages/admin/AdminLayout";
+import DashboardPage from "./pages/admin/DashboardPage";
+import InvitesPage from "./pages/admin/InvitesPage";
+import UsersPage from "./pages/admin/UsersPage";
+import ModerationPage from "./pages/admin/ModerationPage";
+import ScrapedPage from "./pages/admin/ScrapedPage";
+import SettingsPage from "./pages/admin/SettingsPage";
 
 export default function App() {
   return (
@@ -66,6 +74,18 @@ export default function App() {
           <Route path="/events" element={<EventsListPage />} />
           <Route path="/events/new" element={<EventFormPage />} />
           <Route path="/events/:id/edit" element={<EventFormPage />} />
+
+          {/* Admin routes (staff only) */}
+          <Route element={<AdminRoute />}>
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route index element={<DashboardPage />} />
+              <Route path="invites" element={<InvitesPage />} />
+              <Route path="users" element={<UsersPage />} />
+              <Route path="moderation" element={<ModerationPage />} />
+              <Route path="scraped" element={<ScrapedPage />} />
+              <Route path="settings" element={<SettingsPage />} />
+            </Route>
+          </Route>
 
           {/* Catch-all: unknown authenticated paths */}
           <Route
