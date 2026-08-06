@@ -12,14 +12,14 @@ services:
 
   postgres:
     ports:
-      - "5433:5432"   # 5432 may be taken by a local PG install; connect DB tools to localhost:5433
+      - "127.0.0.1:5433:5432"   # 5432 may be taken by a local PG install; connect DB tools to localhost:5433
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password}
 
   minio:
     ports:
-      - "9000:9000"   # MinIO S3 API
-      - "9001:9001"   # MinIO web console — http://localhost:9001
+      - "127.0.0.1:9000:9000"   # MinIO S3 API
+      - "127.0.0.1:9001:9001"   # MinIO web console — http://localhost:9001
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-dev_minio_password}
@@ -36,6 +36,7 @@ services:
       CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost
       MINIO_ENDPOINT: minio:9000
       MINIO_PUBLIC_ENDPOINT: localhost:9000
+      MINIO_PUBLIC_USE_HTTPS: "false"
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-dev_minio_password}
       MINIO_BUCKET: ${MINIO_BUCKET:-media}
@@ -44,7 +45,7 @@ services:
       ACCOUNT_EMAIL_VERIFICATION: "none"
     command: python manage.py runserver 0.0.0.0:8000
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
 
   frontend:
     build:
@@ -55,7 +56,7 @@ services:
       - ./frontend:/app
       - /app/node_modules    # Preserve container node_modules
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     environment:
       - VITE_API_BASE=/api
     command: npm run dev -- --host

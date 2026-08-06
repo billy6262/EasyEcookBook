@@ -82,7 +82,6 @@ export default function ShoppingListPage() {
   });
 
   const checkedCount = items.filter((i) => i.is_checked).length;
-  const uncheckedCount = items.length - checkedCount;
 
   // Group by meal
   const groups = new Map<string, { mealId: number | null; name: string; items: ShoppingItem[] }>();

@@ -4,6 +4,7 @@ import requests
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from .models import ScrapedRecipe
@@ -45,6 +46,8 @@ def _parse_servings(yields_str: str | None) -> int | None:
 
 class ScrapeView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_scope = "scraper"
+    throttle_classes = [ScopedRateThrottle]
 
     def post(self, request):
         serializer = ScrapeRequestSerializer(data=request.data)

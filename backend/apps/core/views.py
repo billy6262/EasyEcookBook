@@ -1,14 +1,17 @@
 from datetime import timedelta
 
 from dj_rest_auth.jwt_auth import set_jwt_cookies
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Count
 from django.db.models.functions import TruncDate
+from django.middleware.csrf import get_token
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -28,8 +31,6 @@ from .serializers import (
 )
 
 User = get_user_model()
-
-DEMO_EMAIL = "demo@easyecookbook.local"
 
 
 # ── Site settings ──────────────────────────────────────────────────────────────
@@ -231,6 +232,8 @@ class AdminStatsView(APIView):
 # ── Read-only demo login (public) ────────────────────────────────────────────────
 class DemoLoginView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "demo_login"
+    throttle_classes = [ScopedRateThrottle]
 
     def post(self, request):
         site = SiteSettings.load()
@@ -240,24 +243,31 @@ class DemoLoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        user, created = User.objects.get_or_create(
-            email=DEMO_EMAIL,
-            defaults={
-                "username": "demo",
-                "first_name": "Demo",
-                "last_name": "User",
-                "is_demo": True,
-                "is_active": True,
-            },
-        )
-        if created:
-            user.set_unusable_password()
-            user.save()
-        elif not user.is_demo:
-            user.is_demo = True
-            user.save(update_fields=["is_demo"])
+        user = User.objects.filter(email__iexact=settings.DEMO_ACCOUNT_EMAIL).first()
+        if (
+            user is None
+            or not user.is_demo
+            or not user.is_active
+            or user.is_staff
+            or user.is_superuser
+            or user.has_usable_password()
+        ):
+            return Response(
+                {"detail": "The demo is temporarily unavailable."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         refresh = RefreshToken.for_user(user)
         response = Response({"detail": "Logged in to the read-only demo."})
         set_jwt_cookies(response, str(refresh.access_token), str(refresh))
         return response
+
+
+class CsrfCookieView(APIView):
+    """Set and return Django's CSRF token for the cookie-authenticated SPA."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return Response({"csrfToken": get_token(request)})

@@ -18,8 +18,20 @@ EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 # Skip email verification so developers can log in immediately
 ACCOUNT_EMAIL_VERIFICATION = "none"
 
-# Accept requests from any origin in development
-CORS_ALLOW_ALL_ORIGINS = True
+# Development accepts only the local frontend origins configured in the compose
+# override, while retaining higher throttling limits for normal local iteration.
+REST_FRAMEWORK = {
+	**REST_FRAMEWORK,  # type: ignore[name-defined]
+	"DEFAULT_THROTTLE_RATES": {
+		**REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"],  # type: ignore[name-defined]
+		"anon": "1000/hour",
+		"user": "10000/hour",
+		"demo_login": "100/hour",
+		"invite_validation": "300/hour",
+		"event_join": "300/hour",
+		"scraper": "100/hour",
+	},
+}
 
 # Show full error details
 INTERNAL_IPS = ["127.0.0.1"]

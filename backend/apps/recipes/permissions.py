@@ -1,7 +1,18 @@
+from django.db import models
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
-from apps.core.demo import demo_can_read_owner
+from apps.core.demo import demo_can_read_owner, effective_user
 from apps.recipes.models import Collection, CollectionMembership, Recipe
+
+
+def recipes_visible_to_request(request, queryset=None):
+    """Return recipes the caller may read through the standard recipe API."""
+    queryset = queryset if queryset is not None else Recipe.objects.all()
+    owner = effective_user(request)
+    public = models.Q(visibility=Recipe.VISIBILITY_PUBLIC)
+    if not getattr(request.user, "is_staff", False):
+        public &= models.Q(is_hidden=False)
+    return queryset.filter(public | models.Q(created_by=owner)).distinct()
 
 
 class IsRecipeOwnerOrReadOnly(BasePermission):

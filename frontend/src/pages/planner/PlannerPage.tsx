@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { isMealStale, plannerApi, type PlannedMeal } from "../../api/planner";
+import { isMealStale, plannerApi } from "../../api/planner";
 import MealCard from "../../components/planner/MealCard";
 
 const STALENESS_KEY = "easyecookbook_staleness_days";

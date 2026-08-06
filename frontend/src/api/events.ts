@@ -194,8 +194,7 @@ export const eventsApi = {
     id: number,
     inviteToken: string,
     guestName: string,
-    guestEmail?: string,
-    opts?: { resume?: boolean; force_new?: boolean }
+    guestEmail?: string
   ) =>
     apiClient.post<{ participant_id: number; guest_token: string }>(
       `/events/${id}/join-guest/`,
@@ -203,8 +202,6 @@ export const eventsApi = {
         invite_token: inviteToken,
         guest_name: guestName,
         guest_email: guestEmail ?? "",
-        resume: opts?.resume ?? false,
-        force_new: opts?.force_new ?? false,
       }
     ),
 

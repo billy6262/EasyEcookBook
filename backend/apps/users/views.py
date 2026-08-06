@@ -2,6 +2,7 @@ import uuid
 
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.users.models import InviteToken, UserProfile
@@ -26,6 +27,8 @@ class ValidateInviteView(APIView):
     """
 
     permission_classes = [permissions.AllowAny]
+    throttle_scope = "invite_validation"
+    throttle_classes = [ScopedRateThrottle]
 
     def get(self, request, token: str):
         try:

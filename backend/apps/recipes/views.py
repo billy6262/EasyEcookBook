@@ -19,7 +19,12 @@ from apps.recipes.models import (
     Step,
     Tag,
 )
-from apps.recipes.permissions import IsRecipeOwnerOrReadOnly, IsCollectionMember, collection_role
+from apps.recipes.permissions import (
+    IsCollectionMember,
+    IsRecipeOwnerOrReadOnly,
+    collection_role,
+    recipes_visible_to_request,
+)
 from apps.recipes.serializers import (
     CategorySerializer,
     CollectionDetailSerializer,
@@ -55,11 +60,7 @@ class RecipeViewSet(viewsets.ModelViewSet):
         if params.get("mine") == "true":
             qs = Recipe.objects.filter(created_by=user)
         else:
-            public = Recipe.objects.filter(visibility=Recipe.VISIBILITY_PUBLIC)
-            # Hide moderator-hidden recipes from everyone except staff.
-            if not user.is_staff:
-                public = public.exclude(is_hidden=True)
-            qs = (public | Recipe.objects.filter(created_by=user)).distinct()
+            qs = recipes_visible_to_request(self.request)
 
         category_id = params.get("category")
         if category_id and category_id.isdigit():
@@ -200,8 +201,9 @@ class RecipeViewSet(viewsets.ModelViewSet):
             to_ids = RecipeAccompaniment.objects.filter(
                 to_recipe=recipe
             ).values_list("from_recipe_id", flat=True)
-            linked = Recipe.objects.filter(
-                id__in=list(from_ids) + list(to_ids)
+            linked = recipes_visible_to_request(
+                request,
+                Recipe.objects.filter(id__in=list(from_ids) + list(to_ids)),
             ).order_by("title")
             return Response(
                 RecipeListSerializer(linked, many=True, context={"request": request}).data
@@ -286,15 +288,27 @@ class IngredientViewSet(viewsets.ReadOnlyModelViewSet):
 class TagViewSet(viewsets.ModelViewSet):
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
-    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [SearchFilter]
     search_fields = ["name"]
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [permissions.IsAuthenticated()]
+        from apps.core.permissions import IsStaff
+
+        return [IsStaff()]
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.select_related("parent").all()
     serializer_class = CategorySerializer
-    permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [permissions.IsAuthenticated()]
+        from apps.core.permissions import IsStaff
+
+        return [IsStaff()]
 
 
 class CollectionViewSet(viewsets.ModelViewSet):

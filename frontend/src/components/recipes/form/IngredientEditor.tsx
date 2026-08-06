@@ -16,7 +16,6 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useQuery } from "@tanstack/react-query";
 import { recipesApi } from "../../../api/recipes";
 
 export interface IngredientRow {

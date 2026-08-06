@@ -3,7 +3,9 @@ import uuid
 from allauth.account import app_settings as allauth_account_settings
 from allauth.account.adapter import get_adapter
 from allauth.account.utils import setup_user_email
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from rest_framework import serializers
 
 from apps.users.models import InviteToken, UserProfile
@@ -45,6 +47,8 @@ class CustomRegisterSerializer(serializers.Serializer):
 
     def validate_email(self, email: str) -> str:
         email = get_adapter().clean_email(email)
+        if email.casefold() == settings.DEMO_ACCOUNT_EMAIL.casefold():
+            raise serializers.ValidationError("This email address is reserved.")
         if allauth_account_settings.UNIQUE_EMAIL:
             if User.objects.filter(email__iexact=email).exists():
                 raise serializers.ValidationError(
@@ -84,20 +88,40 @@ class CustomRegisterSerializer(serializers.Serializer):
         return value
 
     def save(self, request):
-        adapter = get_adapter()
-        user = adapter.new_user(request)
-        self.cleaned_data = self.validated_data
-        adapter.save_user(request, user, self)
-        setup_user_email(request, user, [])
-
         invite_token_value = self.validated_data.get("invite_token")
-        if invite_token_value:
-            try:
-                invite = InviteToken.objects.get(token=uuid.UUID(invite_token_value))
+        with transaction.atomic():
+            from apps.core.models import SiteSettings
+
+            site = SiteSettings.objects.select_for_update().filter(pk=1).first()
+            if site is None:
+                site = SiteSettings.load()
+
+            invite = None
+            if invite_token_value:
+                try:
+                    invite = InviteToken.objects.select_for_update().get(
+                        token=uuid.UUID(invite_token_value)
+                    )
+                except (InviteToken.DoesNotExist, ValueError):
+                    raise serializers.ValidationError({"invite_token": "Invalid invite token."})
+                if not invite.is_valid:
+                    raise serializers.ValidationError(
+                        {"invite_token": "This invite token is expired or has reached its usage limit."}
+                    )
+            elif site.registration_mode == SiteSettings.REGISTRATION_INVITE_ONLY:
+                raise serializers.ValidationError(
+                    {"invite_token": "Registration is invite-only. A valid invite token is required."}
+                )
+
+            adapter = get_adapter()
+            user = adapter.new_user(request)
+            self.cleaned_data = self.validated_data
+            adapter.save_user(request, user, self)
+            setup_user_email(request, user, [])
+
+            if invite is not None:
                 invite.uses_count += 1
                 invite.used_by = user
                 invite.save(update_fields=["uses_count", "used_by"])
-            except InviteToken.DoesNotExist:
-                pass
 
-        return user
+            return user

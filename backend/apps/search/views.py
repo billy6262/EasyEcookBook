@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.recipes.models import Recipe
+from apps.recipes.permissions import recipes_visible_to_request
 from apps.recipes.serializers import RecipeListSerializer
 
 
@@ -32,16 +33,11 @@ class RecipeSearchView(APIView):
             + SearchVector("description", weight="B")
         )
 
-        recipes = (
+        recipes = recipes_visible_to_request(
+            request,
             Recipe.objects.annotate(rank=SearchRank(search_vector, search_query))
             .filter(rank__gte=0.05)
-            .filter(
-                Q(visibility=Recipe.VISIBILITY_PUBLIC)
-                | Q(created_by=request.user)
-            )
-            .order_by("-rank")
-            .distinct()[:30]
-        )
+        ).order_by("-rank")[:30]
 
         serializer = RecipeListSerializer(recipes, many=True, context={"request": request})
         return Response({"results": serializer.data, "count": len(serializer.data)})

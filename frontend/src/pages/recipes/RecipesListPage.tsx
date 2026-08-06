@@ -45,12 +45,6 @@ export default function RecipesListPage() {
     staleTime: Infinity,
   });
 
-  const { data: tags = [] } = useQuery({
-    queryKey: ["tags"],
-    queryFn: () => recipesApi.listTags().then((r) => r.data.results ?? []),
-    staleTime: Infinity,
-  });
-
   const page = filters.page ?? 1;
 
   return (
@@ -108,7 +102,6 @@ export default function RecipesListPage() {
         <RecipeFiltersBar
           filters={filters}
           categories={categories}
-          tags={tags}
           selectedFilterTags={selectedFilterTags}
           onTagsChange={(tags) => {
             setSelectedFilterTags(tags);

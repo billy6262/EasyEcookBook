@@ -12,6 +12,7 @@ from apps.recipes.models import (
     Step,
     Tag,
 )
+from apps.recipes.permissions import recipes_visible_to_request
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -207,4 +208,12 @@ class CollectionDetailSerializer(CollectionSerializer):
 
     def get_recipes(self, obj: Collection) -> list:
         qs = obj.collection_recipes.select_related("recipe", "added_by").order_by("-added_at")
+        request = self.context.get("request")
+        if request is None:
+            return []
+        visible_recipes = recipes_visible_to_request(
+            request,
+            Recipe.objects.filter(id__in=qs.values("recipe_id")),
+        )
+        qs = qs.filter(recipe__in=visible_recipes)
         return CollectionRecipeSerializer(qs, many=True, context=self.context).data

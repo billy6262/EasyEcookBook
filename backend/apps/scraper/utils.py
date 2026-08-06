@@ -11,15 +11,20 @@ import os
 import re
 import socket
 import uuid
+from dataclasses import dataclass
 from fractions import Fraction
 from html import unescape as _html_unescape
-from urllib.parse import urlparse
+from io import BytesIO
+from urllib.parse import urljoin, urlparse
 
 import requests
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from PIL import Image, UnidentifiedImageError
+from requests.adapters import HTTPAdapter
+from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +35,90 @@ BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
+
+_MAX_REDIRECTS = 3
+_MAX_HTML_BYTES = 5 * 1024 * 1024  # 5 MB
+_HTML_CONTENT_TYPES = {"text/html", "application/xhtml+xml"}
+
+
+@dataclass(frozen=True)
+class _ResolvedTarget:
+    hostname: str
+    port: int
+    address: str
+
+
+class _PinnedAddressAdapter(HTTPAdapter):
+    """Connect to a validated IP while retaining HTTPS hostname verification."""
+
+    def __init__(self, target: _ResolvedTarget):
+        self._target = target
+        super().__init__(pool_connections=1, pool_maxsize=1, max_retries=0)
+
+    def send(self, request, **kwargs):
+        host = self._target.hostname
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        default_port = 443 if request.url.startswith("https://") else 80
+        if self._target.port != default_port:
+            host = f"{host}:{self._target.port}"
+        request.headers["Host"] = host
+        return super().send(request, **kwargs)
+
+    def get_connection_with_tls_context(self, request, verify, proxies=None, cert=None):
+        if request.url.startswith("https://"):
+            return HTTPSConnectionPool(
+                host=self._target.address,
+                port=self._target.port,
+                maxsize=1,
+                block=True,
+                assert_hostname=self._target.hostname,
+                server_hostname=self._target.hostname,
+            )
+        return HTTPConnectionPool(
+            host=self._target.address,
+            port=self._target.port,
+            maxsize=1,
+            block=True,
+        )
+
+
+def _resolve_public_target(url: str) -> _ResolvedTarget:
+    parsed = urlparse(url)
+
+    if parsed.scheme not in ("http", "https"):
+        raise ValidationError("Only http and https URLs are supported.")
+    if parsed.username or parsed.password:
+        raise ValidationError("URLs with credentials are not allowed.")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValidationError("Invalid URL: missing hostname.")
+
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        results = socket.getaddrinfo(
+            hostname,
+            port,
+            type=socket.SOCK_STREAM,
+        )
+    except (socket.gaierror, ValueError):
+        raise ValidationError(f"Could not resolve hostname: {hostname}")
+
+    addresses = []
+    for _, _, _, _, sockaddr in results:
+        address = sockaddr[0]
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            raise ValidationError("Hostname resolved to an invalid address.")
+        if not ip.is_global:
+            raise ValidationError("Requests to non-public network addresses are not allowed.")
+        addresses.append(str(ip))
+
+    if not addresses:
+        raise ValidationError(f"Could not resolve hostname: {hostname}")
+    return _ResolvedTarget(hostname=hostname, port=port, address=addresses[0])
 
 
 def validate_scrape_url(url: str) -> None:
@@ -42,30 +131,69 @@ def validate_scrape_url(url: str) -> None:
       2. Hostname must be resolvable
       3. Resolved IP must not be private, loopback, link-local, or reserved
     """
-    parsed = urlparse(url)
+    _resolve_public_target(url)
 
-    if parsed.scheme not in ("http", "https"):
-        raise ValidationError("Only http and https URLs are supported.")
 
-    hostname = parsed.hostname
-    if not hostname:
-        raise ValidationError("Invalid URL: missing hostname.")
-
+def _request_pinned(url: str, *, headers: dict[str, str], timeout, stream: bool):
+    target = _resolve_public_target(url)
+    session = requests.Session()
+    session.trust_env = False
+    adapter = _PinnedAddressAdapter(target)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
     try:
-        # Resolve to an IP address
-        addr = socket.gethostbyname(hostname)
-        ip = ipaddress.ip_address(addr)
-    except socket.gaierror:
-        raise ValidationError(f"Could not resolve hostname: {hostname}")
+        response = session.get(
+            url,
+            headers=headers,
+            timeout=timeout,
+            stream=stream,
+            allow_redirects=False,
+        )
+    except Exception:
+        session.close()
+        raise
+    response._scraper_session = session
+    return response
 
-    if ip.is_private:
-        raise ValidationError("Requests to private network addresses are not allowed.")
-    if ip.is_loopback:
-        raise ValidationError("Requests to loopback addresses are not allowed.")
-    if ip.is_link_local:
-        raise ValidationError("Requests to link-local addresses are not allowed.")
-    if ip.is_reserved:
-        raise ValidationError("Requests to reserved IP ranges are not allowed.")
+
+def _close_response(response) -> None:
+    try:
+        response.close()
+    finally:
+        session = getattr(response, "_scraper_session", None)
+        if session is not None:
+            session.close()
+
+
+def _safe_get(url: str, *, headers: dict[str, str], timeout, stream: bool):
+    current_url = url
+    for redirect_count in range(_MAX_REDIRECTS + 1):
+        response = _request_pinned(
+            current_url,
+            headers=headers,
+            timeout=timeout,
+            stream=stream,
+        )
+        location = response.headers.get("Location")
+        if response.is_redirect and location:
+            _close_response(response)
+            if redirect_count == _MAX_REDIRECTS:
+                raise requests.TooManyRedirects("Too many redirects while fetching recipe URL.")
+            current_url = urljoin(current_url, location)
+            continue
+        return response
+    raise requests.TooManyRedirects("Too many redirects while fetching recipe URL.")
+
+
+def _read_response_limited(response, limit: int) -> bytes:
+    chunks = []
+    total = 0
+    for chunk in response.iter_content(chunk_size=65536):
+        total += len(chunk)
+        if total > limit:
+            raise ValueError("Response exceeds the maximum allowed size.")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -102,9 +230,16 @@ def fetch_page_html(url: str) -> str:
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     }
-    response = requests.get(url, headers=headers, timeout=15)
-    response.raise_for_status()
-    return response.text
+    response = _safe_get(url, headers=headers, timeout=(5, 15), stream=True)
+    try:
+        response.raise_for_status()
+        content_type = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
+        if content_type not in _HTML_CONTENT_TYPES:
+            raise ValueError("The URL did not return an HTML document.")
+        html_bytes = _read_response_limited(response, _MAX_HTML_BYTES)
+        return html_bytes.decode(response.encoding or "utf-8", errors="replace")
+    finally:
+        _close_response(response)
 
 
 def download_and_store_image(image_url: str) -> str | None:
@@ -116,11 +251,6 @@ def download_and_store_image(image_url: str) -> str | None:
     failure on the image does not prevent the recipe from being imported.
     """
     try:
-        validate_scrape_url(image_url)
-    except Exception:
-        return None
-
-    try:
         parsed = urlparse(image_url)
         headers = {
             "User-Agent": BROWSER_USER_AGENT,
@@ -128,7 +258,7 @@ def download_and_store_image(image_url: str) -> str | None:
             "Referer": f"{parsed.scheme}://{parsed.netloc}/",
             "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
         }
-        response = requests.get(image_url, timeout=10, stream=True, headers=headers)
+        response = _safe_get(image_url, timeout=(5, 10), stream=True, headers=headers)
         response.raise_for_status()
 
         content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
@@ -143,17 +273,12 @@ def download_and_store_image(image_url: str) -> str | None:
                 return None
             ext = _ALLOWED_IMAGE_TYPES[inferred]
 
-        # Read with a hard cap to avoid memory exhaustion
-        chunks = []
-        total = 0
-        for chunk in response.iter_content(chunk_size=65536):
-            total += len(chunk)
-            if total > _MAX_IMAGE_BYTES:
-                return None
-            chunks.append(chunk)
-
-        data = b"".join(chunks)
+        data = _read_response_limited(response, _MAX_IMAGE_BYTES)
         if not data:
+            return None
+        try:
+            Image.open(BytesIO(data)).verify()
+        except (UnidentifiedImageError, OSError):
             return None
 
         filename = f"scraped_images/{uuid.uuid4().hex}{ext}"
@@ -168,8 +293,11 @@ def download_and_store_image(image_url: str) -> str | None:
         return default_storage.url(path)
 
     except Exception:
-        logger.exception("Failed to download scraped image from %s", image_url)
+        logger.exception("Failed to download scraped image from %s", urlparse(image_url).hostname)
         return None
+    finally:
+        if "response" in locals():
+            _close_response(response)
 
 
 # ---------------------------------------------------------------------------

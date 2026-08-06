@@ -13,7 +13,7 @@ services:
 
   # ── PostgreSQL ──────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: postgres@sha256:fd1e8d0274f13f5a03a2673a207b28e14823c2f2efc3ca4bb4197c8a9f841bdc
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -29,7 +29,7 @@ services:
 
   # ── MinIO (S3-compatible media storage) ─────────────────────────────────────
   minio:
-    image: minio/minio:latest
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     volumes:
       - minio_data:/data
     environment:
@@ -45,7 +45,7 @@ services:
 
   # ── MinIO bucket initialiser (runs once, then exits) ────────────────────────
   mc:
-    image: minio/mc:latest
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     depends_on:
       minio:
         condition: service_healthy
@@ -76,6 +76,8 @@ services:
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost}
       MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-minio:9000}
+      MINIO_PUBLIC_USE_HTTPS: "true"
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: ${MINIO_BUCKET:-media}

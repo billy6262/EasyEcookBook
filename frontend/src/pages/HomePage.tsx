@@ -13,7 +13,7 @@ function PlannerWidget() {
   const { data: shoppedMeals = [], isLoading: loadingShopped } = useQuery({
     queryKey: ["planner-meals", "home-shopped"],
     queryFn: () =>
-      plannerApi.listMeals({ status: "shopped", template: "false" }).then((r) => r.data),
+      plannerApi.listMeals({ status: "shopped" }).then((r) => r.data),
   });
 
   const isLoading = loadingActive || loadingShopped;

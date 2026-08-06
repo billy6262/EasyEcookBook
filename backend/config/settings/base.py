@@ -9,6 +9,7 @@ env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, ["localhost"]),
     CORS_ALLOWED_ORIGINS=(list, ["http://localhost:5173"]),
+    CSRF_TRUSTED_ORIGINS=(list, ["http://localhost:5173"]),
     MINIO_USE_HTTPS=(bool, False),
     EMAIL_PORT=(int, 587),
     EMAIL_USE_TLS=(bool, True),
@@ -115,6 +116,7 @@ ACCOUNT_UNIQUE_EMAIL = True
 
 # ── Read-only demo ─────────────────────────────────────────────────────────────
 # The demo account browses this user's content so recruiters see a populated app.
+DEMO_ACCOUNT_EMAIL = env("DEMO_ACCOUNT_EMAIL", default="demo@easyecookbook.local")
 DEMO_SHOWCASE_EMAIL = env("DEMO_SHOWCASE_EMAIL", default="andrew.dorchak98@gmail.com")
 
 # ── REST Framework ─────────────────────────────────────────────────────────────
@@ -125,6 +127,18 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "60/hour",
+        "user": "1000/hour",
+        "demo_login": "10/hour",
+        "invite_validation": "30/hour",
+        "event_join": "20/hour",
+        "scraper": "20/hour",
+    },
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
@@ -148,6 +162,7 @@ REST_AUTH = {
     "JWT_AUTH_REFRESH_COOKIE": "auth-refresh-token",
     "JWT_AUTH_HTTPONLY": True,
     "JWT_AUTH_SAMESITE": "Lax",
+    "JWT_AUTH_COOKIE_USE_CSRF": True,
     "JWT_AUTH_RETURN_EXPIRATION": True,
     "USER_DETAILS_SERIALIZER": "apps.users.serializers.UserDetailsSerializer",
     "REGISTER_SERIALIZER": "apps.users.serializers.CustomRegisterSerializer",
@@ -156,6 +171,8 @@ REST_AUTH = {
 # ── CORS ───────────────────────────────────────────────────────────────────────
 CORS_ALLOWED_ORIGINS = env("CORS_ALLOWED_ORIGINS")
 CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
+CSRF_COOKIE_HTTPONLY = False
 
 # ── Storage (MinIO / S3-compatible) ───────────────────────────────────────────
 _minio_use_https = env("MINIO_USE_HTTPS", default=False)
@@ -164,6 +181,7 @@ _minio_endpoint = env("MINIO_ENDPOINT", default="localhost:9000")
 # MinIO over the internal hostname "minio:9000", but the browser can only reach
 # it via the published "localhost:9000". Defaults to the internal endpoint.
 _minio_public_endpoint = env("MINIO_PUBLIC_ENDPOINT", default=_minio_endpoint)
+_minio_public_use_https = env("MINIO_PUBLIC_USE_HTTPS", default=_minio_use_https)
 
 STORAGES = {
     "default": {
@@ -186,7 +204,7 @@ AWS_S3_SIGNATURE_VERSION = "s3v4"
 MEDIA_URL = f"{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/"
 
 # Browser-facing base URL for stored media (see _minio_public_endpoint above).
-_minio_public_scheme = "https" if _minio_use_https else "http"
+_minio_public_scheme = "https" if _minio_public_use_https else "http"
 MINIO_PUBLIC_URL_BASE = (
     f"{_minio_public_scheme}://{_minio_public_endpoint}/{AWS_STORAGE_BUCKET_NAME}/"
 )

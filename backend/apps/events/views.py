@@ -3,10 +3,12 @@ import uuid
 
 from django.db import transaction
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from apps.core.demo import effective_user
 from apps.events import notifications
@@ -57,6 +59,12 @@ class EventViewSet(viewsets.ModelViewSet):
         # requires a real account.
         return [permissions.IsAuthenticated()]
 
+    def get_throttles(self):
+        if self.action in ("join", "join_guest"):
+            self.throttle_scope = "event_join"
+            return [ScopedRateThrottle()]
+        return super().get_throttles()
+
     def get_queryset(self):
         user = effective_user(self.request)
         if self.action == "list":
@@ -99,13 +107,14 @@ class EventViewSet(viewsets.ModelViewSet):
 
     # ── POST /api/events/{id}/join/ ────────────────────────────────────────────
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def join(self, request, pk=None):
         """
         Join an event via an invite token.
         Authenticated users are linked to their account.
         Guests provide guest_name + guest_email and receive a guest_token.
         """
-        event = self.get_object()
+        event = get_object_or_404(Event.objects.select_for_update(), pk=pk)
         invite_token_str = request.data.get("invite_token", "").strip()
 
         if not invite_token_str:
@@ -114,8 +123,12 @@ class EventViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        existing = EventParticipant.objects.filter(event=event, user=request.user).first()
+        if existing is not None:
+            return Response({"participant_id": existing.id})
+
         try:
-            invite = EventInvite.objects.get(
+            invite = EventInvite.objects.select_for_update().get(
                 token=uuid.UUID(invite_token_str), event=event
             )
         except (EventInvite.DoesNotExist, ValueError):
@@ -130,24 +143,23 @@ class EventViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Authenticated user join
-        participant, created = EventParticipant.objects.get_or_create(
+        participant = EventParticipant.objects.create(
             event=event,
             user=request.user,
-            defaults={"role": EventParticipant.ROLE_CONTRIBUTOR},
+            role=EventParticipant.ROLE_CONTRIBUTOR,
         )
-        if created:
-            invite.uses_count += 1
-            invite.save(update_fields=["uses_count"])
-            notifications.on_participant_joined(event, participant)
+        invite.uses_count += 1
+        invite.save(update_fields=["uses_count"])
+        transaction.on_commit(lambda: notifications.on_participant_joined(event, participant))
 
         return Response({"participant_id": participant.id})
 
     # ── POST /api/events/{id}/join-guest/ ──────────────────────────────────────
     @action(detail=True, methods=["post"], url_path="join-guest", permission_classes=[permissions.AllowAny])
+    @transaction.atomic
     def join_guest(self, request, pk=None):
         """Guest join — no account required. Returns a guest_token for subsequent requests."""
-        event = self.get_object()
+        event = get_object_or_404(Event.objects.select_for_update(), pk=pk)
         invite_token_str = request.data.get("invite_token", "").strip()
         guest_name = request.data.get("guest_name", "").strip()
         guest_email = request.data.get("guest_email", "").strip()
@@ -158,21 +170,17 @@ class EventViewSet(viewsets.ModelViewSet):
             return Response({"detail": "guest_name is required."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            invite = EventInvite.objects.get(token=uuid.UUID(invite_token_str), event=event)
+            invite = EventInvite.objects.select_for_update().get(
+                token=uuid.UUID(invite_token_str), event=event
+            )
         except (EventInvite.DoesNotExist, ValueError):
             return Response({"detail": "Invalid invite token."}, status=status.HTTP_404_NOT_FOUND)
 
         if not invite.is_valid:
             return Response({"detail": "Invite token is expired or exhausted."}, status=status.HTTP_400_BAD_REQUEST)
 
-        def _flag(name):
-            return str(request.data.get(name, "")).lower() in ("true", "1", "yes")
-
-        resume = _flag("resume")
-        force_new = _flag("force_new")
-
-        # Look for an existing guest for this event with the same email (preferred)
-        # or the same name, so the same person doesn't create duplicate entries.
+        # A bearer token is issued only at the original join. Do not recover one
+        # from identity hints; organizers can remove stale participants instead.
         match = None
         if guest_email:
             match = EventParticipant.objects.filter(
@@ -183,28 +191,13 @@ class EventViewSet(viewsets.ModelViewSet):
                 event=event, user__isnull=True, guest_name__iexact=guest_name
             ).first()
 
-        # Confirmed resume — return the existing guest's identity (no new participant,
-        # and no extra invite use).
-        if match is not None and resume:
-            return Response(
-                {"participant_id": match.id, "guest_token": str(match.guest_token)},
-                status=status.HTTP_200_OK,
-            )
-
-        # A match exists and the caller hasn't chosen yet — ask them.
-        if match is not None and not force_new:
-            matched_email = bool(
-                guest_email and match.guest_email
-                and match.guest_email.lower() == guest_email.lower()
-            )
+        if match is not None:
             return Response(
                 {
-                    "detail": "A guest with that name or email has already joined.",
-                    "existing": {
-                        "participant_id": match.id,
-                        "display_name": match.display_name,
-                    },
-                    "match_on": "email" if matched_email else "name",
+                    "detail": (
+                        "A guest with these details has already joined. Ask the event organizer "
+                        "to remove the previous participant before joining again."
+                    ),
                 },
                 status=status.HTTP_409_CONFLICT,
             )
@@ -217,7 +210,7 @@ class EventViewSet(viewsets.ModelViewSet):
         )
         invite.uses_count += 1
         invite.save(update_fields=["uses_count"])
-        notifications.on_participant_joined(event, participant)
+        transaction.on_commit(lambda: notifications.on_participant_joined(event, participant))
 
         return Response(
             {"participant_id": participant.id, "guest_token": str(participant.guest_token)},

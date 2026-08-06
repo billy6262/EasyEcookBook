@@ -2,6 +2,7 @@ from .base import *  # noqa: F401
 
 # In production, SECRET_KEY must be explicitly set — no fallback.
 # The base settings already enforce this via env('SECRET_KEY').
+DEBUG = False
 
 # Enforce HTTPS cookie flags in production
 REST_AUTH = {
@@ -11,9 +12,12 @@ REST_AUTH = {
 }
 
 # Hardened security middleware settings
-SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
-X_FRAME_OPTIONS = "SAMEORIGIN"
+X_FRAME_OPTIONS = "DENY"
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
 # HTTP Strict Transport Security (assumes TLS is terminated in front of the app).
 SECURE_HSTS_SECONDS = 31536000  # 1 year

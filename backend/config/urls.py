@@ -1,12 +1,13 @@
 from django.contrib import admin
 from django.urls import path, include
 
-from apps.core.views import DemoLoginView
+from apps.core.views import CsrfCookieView, DemoLoginView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     # Auth (login, logout, password reset, token refresh)
     path("api/auth/", include("dj_rest_auth.urls")),
+    path("api/auth/csrf/", CsrfCookieView.as_view(), name="csrf-cookie"),
     # Registration
     path("api/auth/registration/", include("dj_rest_auth.registration.urls")),
     # Read-only demo login
