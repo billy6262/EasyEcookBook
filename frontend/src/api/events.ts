@@ -190,10 +190,22 @@ export const eventsApi = {
       invite_token: inviteToken,
     }),
 
-  joinGuest: (id: number, inviteToken: string, guestName: string, guestEmail?: string) =>
+  joinGuest: (
+    id: number,
+    inviteToken: string,
+    guestName: string,
+    guestEmail?: string,
+    opts?: { resume?: boolean; force_new?: boolean }
+  ) =>
     apiClient.post<{ participant_id: number; guest_token: string }>(
       `/events/${id}/join-guest/`,
-      { invite_token: inviteToken, guest_name: guestName, guest_email: guestEmail ?? "" }
+      {
+        invite_token: inviteToken,
+        guest_name: guestName,
+        guest_email: guestEmail ?? "",
+        resume: opts?.resume ?? false,
+        force_new: opts?.force_new ?? false,
+      }
     ),
 
   listInvites: (id: number) =>
@@ -235,7 +247,7 @@ export const eventsApi = {
   ) => apiClient.post<EventFulfillment>(`/events/${id}/dishes/${dishId}/fulfill/`, payload, guestCfg(id)),
 
   saveFulfillmentAsRecipe: (id: number, fulfillmentId: number) =>
-    apiClient.post<{ recipe_id: number }>(`/events/${id}/fulfillments/${fulfillmentId}/save-as-recipe/`, {}, guestCfg(id)),
+    apiClient.post<{ recipe_id: number; already_saved: boolean }>(`/events/${id}/fulfillments/${fulfillmentId}/save-as-recipe/`, {}, guestCfg(id)),
 
   // Ingredient claims
   claimIngredient: (id: number, ingredientId: number) =>

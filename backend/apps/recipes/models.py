@@ -84,6 +84,10 @@ class Recipe(models.Model):
         related_name="forks",
     )
     source_url = models.URLField(null=True, blank=True)
+    # Soft reference to the event fulfillment this recipe was saved from, used to
+    # avoid saving the same brought-dish twice for the same user (not a FK, to
+    # keep the recipes app decoupled from the events app).
+    source_event_fulfillment = models.PositiveIntegerField(null=True, blank=True)
     tags = models.ManyToManyField(Tag, blank=True)
     category = models.ForeignKey(
         Category,

@@ -164,6 +164,50 @@ class EventViewSet(viewsets.ModelViewSet):
         if not invite.is_valid:
             return Response({"detail": "Invite token is expired or exhausted."}, status=status.HTTP_400_BAD_REQUEST)
 
+        def _flag(name):
+            return str(request.data.get(name, "")).lower() in ("true", "1", "yes")
+
+        resume = _flag("resume")
+        force_new = _flag("force_new")
+
+        # Look for an existing guest for this event with the same email (preferred)
+        # or the same name, so the same person doesn't create duplicate entries.
+        match = None
+        if guest_email:
+            match = EventParticipant.objects.filter(
+                event=event, user__isnull=True, guest_email__iexact=guest_email
+            ).first()
+        if match is None:
+            match = EventParticipant.objects.filter(
+                event=event, user__isnull=True, guest_name__iexact=guest_name
+            ).first()
+
+        # Confirmed resume — return the existing guest's identity (no new participant,
+        # and no extra invite use).
+        if match is not None and resume:
+            return Response(
+                {"participant_id": match.id, "guest_token": str(match.guest_token)},
+                status=status.HTTP_200_OK,
+            )
+
+        # A match exists and the caller hasn't chosen yet — ask them.
+        if match is not None and not force_new:
+            matched_email = bool(
+                guest_email and match.guest_email
+                and match.guest_email.lower() == guest_email.lower()
+            )
+            return Response(
+                {
+                    "detail": "A guest with that name or email has already joined.",
+                    "existing": {
+                        "participant_id": match.id,
+                        "display_name": match.display_name,
+                    },
+                    "match_on": "email" if matched_email else "name",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
         participant = EventParticipant.objects.create(
             event=event,
             guest_name=guest_name,
@@ -396,18 +440,36 @@ class EventViewSet(viewsets.ModelViewSet):
 
         event = self.get_object()
         try:
-            fulfillment = EventDishFulfillment.objects.get(pk=fid, dish__event=event)
+            fulfillment = EventDishFulfillment.objects.select_related("fulfilled_by").get(
+                pk=fid, dish__event=event
+            )
         except EventDishFulfillment.DoesNotExist:
             return Response({"detail": "Fulfillment not found."}, status=status.HTTP_404_NOT_FOUND)
 
         from apps.recipes.models import Ingredient, Recipe, RecipeIngredient
 
+        # Don't let the same user save the same brought-dish twice.
+        existing = Recipe.objects.filter(
+            created_by=request.user, source_event_fulfillment=fulfillment.id
+        ).first()
+        if existing is not None:
+            return Response(
+                {"recipe_id": existing.id, "already_saved": True},
+                status=status.HTTP_200_OK,
+            )
+
+        # Record where the recipe came from in its description.
+        brought_by = fulfillment.fulfilled_by.display_name
+        provenance = f'From "{event.title}" — brought by {brought_by}.'
+        description = provenance if not fulfillment.notes else f"{provenance}\n\n{fulfillment.notes}"
+
         with transaction.atomic():
             recipe = Recipe.objects.create(
                 title=fulfillment.custom_name,
-                description=fulfillment.notes,
+                description=description,
                 created_by=request.user,
                 visibility=Recipe.VISIBILITY_PRIVATE,
+                source_event_fulfillment=fulfillment.id,
             )
             for idx, ing in enumerate(fulfillment.ingredients.all()):
                 ingredient_obj, _ = Ingredient.objects.get_or_create(name=ing.ingredient_name)
@@ -420,7 +482,10 @@ class EventViewSet(viewsets.ModelViewSet):
                     order=idx,
                 )
 
-        return Response({"recipe_id": recipe.id}, status=status.HTTP_201_CREATED)
+        return Response(
+            {"recipe_id": recipe.id, "already_saved": False},
+            status=status.HTTP_201_CREATED,
+        )
 
     # ── PATCH/DELETE /api/events/{id}/dishes/{dish_id}/ ────────────────────────
     @action(detail=True, methods=["patch", "delete"], url_path=r"dishes/(?P<dish_id>\d+)")

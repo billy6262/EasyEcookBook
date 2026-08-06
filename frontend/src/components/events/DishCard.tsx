@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   DISH_TYPE_LABELS,
@@ -30,6 +31,9 @@ export default function DishCard({ event, dish, canSaveRecipe }: Props) {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["event", eventId] });
 
   const [fulfillOpen, setFulfillOpen] = useState(false);
+  const [saveResult, setSaveResult] = useState<
+    { fid: number; recipeId: number; already: boolean } | null
+  >(null);
 
   const { mutate: claim } = useMutation({
     mutationFn: (ingId: number) => eventsApi.claimIngredient(eventId, ingId),
@@ -45,7 +49,12 @@ export default function DishCard({ event, dish, canSaveRecipe }: Props) {
   });
   const { mutate: saveAsRecipe, isPending: savingRecipe } = useMutation({
     mutationFn: (fulfillmentId: number) => eventsApi.saveFulfillmentAsRecipe(eventId, fulfillmentId),
-    onSuccess: () => invalidate(),
+    onSuccess: (res, fulfillmentId) =>
+      setSaveResult({
+        fid: fulfillmentId,
+        recipeId: res.data.recipe_id,
+        already: res.data.already_saved,
+      }),
   });
 
   function IngredientRow({ ing }: { ing: EventIngredient }) {
@@ -132,13 +141,27 @@ export default function DishCard({ event, dish, canSaveRecipe }: Props) {
                       <span className="text-gray-400">— {f.fulfilled_by_name}</span>
                     </p>
                     {canSaveRecipe && f.ingredients.length > 0 && (
-                      <button
-                        onClick={() => saveAsRecipe(f.id)}
-                        disabled={savingRecipe}
-                        className="text-xs text-green-600 hover:underline disabled:opacity-50 flex-shrink-0"
-                      >
-                        Save as recipe
-                      </button>
+                      saveResult?.fid === f.id ? (
+                        <span className="text-xs flex items-center gap-1.5 flex-shrink-0">
+                          <span className={saveResult.already ? "text-gray-400" : "text-green-600"}>
+                            {saveResult.already ? "Already in your recipes" : "✓ Saved"}
+                          </span>
+                          <Link
+                            to={`/recipes/${saveResult.recipeId}`}
+                            className="text-green-600 hover:underline"
+                          >
+                            View
+                          </Link>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => saveAsRecipe(f.id)}
+                          disabled={savingRecipe}
+                          className="text-xs text-green-600 hover:underline disabled:opacity-50 flex-shrink-0"
+                        >
+                          Save as recipe
+                        </button>
+                      )
                     )}
                   </div>
                   {f.notes && <p className="text-xs text-gray-400 italic">{f.notes}</p>}

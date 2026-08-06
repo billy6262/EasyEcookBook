@@ -41,13 +41,56 @@ export default function EventJoinPage() {
     onError: () => setError("Couldn't join. The invite may be expired."),
   });
 
+  const [duplicate, setDuplicate] = useState<{ display_name: string; match_on: string } | null>(
+    null
+  );
+
+  const finishGuest = (guestToken: string) => {
+    setGuestToken(eventId!, guestToken);
+    navigate(`/events/${eventId}`);
+  };
+
   const { mutate: joinAsGuest, isPending: joiningGuest } = useMutation({
     mutationFn: () => eventsApi.joinGuest(eventId!, token!, guestName.trim(), guestEmail.trim()),
-    onSuccess: (res) => {
-      setGuestToken(eventId!, res.data.guest_token);
-      navigate(`/events/${eventId}`);
+    onSuccess: (res) => finishGuest(res.data.guest_token),
+    onError: (err: unknown) => {
+      const resp = (
+        err as {
+          response?: {
+            status?: number;
+            data?: { existing?: { display_name: string }; match_on?: string };
+          };
+        }
+      ).response;
+      if (resp?.status === 409 && resp.data?.existing) {
+        setDuplicate({
+          display_name: resp.data.existing.display_name,
+          match_on: resp.data.match_on ?? "name",
+        });
+      } else {
+        setError("Couldn't join. Please check your details and try again.");
+      }
     },
-    onError: () => setError("Couldn't join. Please check your details and try again."),
+  });
+
+  const { mutate: resumeAsGuest, isPending: resuming } = useMutation({
+    mutationFn: () =>
+      eventsApi.joinGuest(eventId!, token!, guestName.trim(), guestEmail.trim(), { resume: true }),
+    onSuccess: (res) => finishGuest(res.data.guest_token),
+    onError: () => {
+      setDuplicate(null);
+      setError("Couldn't continue as that guest. Please try again.");
+    },
+  });
+
+  const { mutate: joinAsNewGuest, isPending: joiningNew } = useMutation({
+    mutationFn: () =>
+      eventsApi.joinGuest(eventId!, token!, guestName.trim(), guestEmail.trim(), { force_new: true }),
+    onSuccess: (res) => finishGuest(res.data.guest_token),
+    onError: () => {
+      setDuplicate(null);
+      setError("Couldn't join. Please try again.");
+    },
   });
 
   if (isLoading) {
@@ -161,6 +204,47 @@ export default function EventJoinPage() {
       )}
 
       {error && <p className="text-sm text-red-500 mt-3">{error}</p>}
+
+      {/* Duplicate-guest confirmation */}
+      {duplicate && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="font-semibold text-gray-900 mb-2">Is this you?</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              A guest{" "}
+              {duplicate.match_on === "email" ? (
+                <>with that email</>
+              ) : (
+                <>named <span className="font-medium">{duplicate.display_name}</span></>
+              )}{" "}
+              has already joined. Continue as them so your sign-ups stay together, or join as a
+              separate guest?
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => resumeAsGuest()}
+                disabled={resuming || joiningNew}
+                className="w-full py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+              >
+                {resuming ? "Continuing…" : `Yes, continue as ${duplicate.display_name}`}
+              </button>
+              <button
+                onClick={() => joinAsNewGuest()}
+                disabled={resuming || joiningNew}
+                className="w-full py-2 border rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {joiningNew ? "Joining…" : "No, I'm someone new"}
+              </button>
+              <button
+                onClick={() => setDuplicate(null)}
+                className="w-full py-1.5 text-xs text-gray-400 hover:text-gray-600"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }
