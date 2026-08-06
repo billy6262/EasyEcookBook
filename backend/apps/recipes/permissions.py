@@ -1,6 +1,6 @@
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
-from apps.recipes.models import CollectionMembership, Recipe
+from apps.recipes.models import Collection, CollectionMembership, Recipe
 
 
 class IsRecipeOwnerOrReadOnly(BasePermission):
@@ -26,3 +26,36 @@ class IsRecipeOwnerOrReadOnly(BasePermission):
             user=request.user,
             role__in=[CollectionMembership.ROLE_OWNER, CollectionMembership.ROLE_CONTRIBUTOR],
         ).exists()
+
+
+def collection_role(collection: Collection, user) -> str | None:
+    """Return the user's effective role in a collection, or None if no access.
+
+    The creator is always treated as owner even without an explicit membership row.
+    """
+    if not user or not user.is_authenticated:
+        return None
+    if collection.created_by_id == user.id:
+        return CollectionMembership.ROLE_OWNER
+    membership = (
+        CollectionMembership.objects.filter(collection=collection, user=user)
+        .only("role")
+        .first()
+    )
+    return membership.role if membership else None
+
+
+class IsCollectionMember(BasePermission):
+    """
+    Object-level access for collections:
+    - Read: owner, any member, or anyone if the collection is public.
+    - Write (edit meta / delete): owner only.
+    Recipe- and member-management actions enforce their own finer-grained
+    role checks inside the viewset.
+    """
+
+    def has_object_permission(self, request, view, obj: Collection):
+        role = collection_role(obj, request.user)
+        if request.method in SAFE_METHODS:
+            return role is not None or obj.visibility == Collection.VISIBILITY_PUBLIC
+        return role == CollectionMembership.ROLE_OWNER

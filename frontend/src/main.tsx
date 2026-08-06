@@ -11,7 +11,8 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
-      staleTime: 5 * 60 * 1000, // 5 minutes
+      staleTime: 0,          // always refetch on mount — no stale page views
+      refetchOnWindowFocus: true,  // refetch when tab regains focus
     },
   },
 });

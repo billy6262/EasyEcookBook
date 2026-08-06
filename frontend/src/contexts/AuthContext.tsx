@@ -51,6 +51,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     await authApi.logout();
     setUser(null);
+    // Clear per-user client state so the next account doesn't inherit it.
+    try {
+      sessionStorage.clear();
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith("easyecookbook_"))
+        .forEach((k) => localStorage.removeItem(k));
+    } catch {
+      /* storage may be unavailable; ignore */
+    }
   };
 
   const register = async (

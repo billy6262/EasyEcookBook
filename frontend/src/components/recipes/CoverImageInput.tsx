@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Props {
   currentUrl?: string | null;
@@ -13,6 +13,16 @@ export default function CoverImageInput({ currentUrl, onFileSelect, onUrlChange 
   const [preview, setPreview] = useState<string | null>(currentUrl ?? null);
   const [urlInput, setUrlInput] = useState(currentUrl ?? "");
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Sync when the URL is provided asynchronously (e.g. prefilled from an
+  // imported/scraped recipe, or loaded when editing an existing recipe).
+  useEffect(() => {
+    if (currentUrl) {
+      setUrlInput(currentUrl);
+      setPreview(currentUrl);
+      setTab("url");
+    }
+  }, [currentUrl]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

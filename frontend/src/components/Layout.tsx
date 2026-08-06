@@ -20,17 +20,24 @@ export default function Layout() {
                 Recipes
               </Link>
               <Link
+                to="/planner"
+                className="text-sm text-gray-600 hover:text-gray-900"
+              >
+                Planner
+              </Link>
+              <Link
                 to="/collections"
                 className="text-sm text-gray-600 hover:text-gray-900"
               >
                 Collections
               </Link>
-              <Link
-                to="/events"
-                className="text-sm text-gray-600 hover:text-gray-900"
+              <span
+                className="text-sm text-gray-300 cursor-not-allowed"
+                title="Events — coming soon"
+                aria-disabled="true"
               >
                 Events
-              </Link>
+              </span>
               <span className="text-sm text-gray-400">{user?.email}</span>
               <button
                 onClick={logout}

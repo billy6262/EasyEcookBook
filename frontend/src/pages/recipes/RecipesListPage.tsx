@@ -5,6 +5,8 @@ import { recipesApi, type RecipeFilters, type Tag } from "../../api/recipes";
 import RecipeCard from "../../components/recipes/RecipeCard";
 import RecipeCardSkeleton from "../../components/recipes/RecipeCardSkeleton";
 import RecipeFiltersBar from "../../components/recipes/RecipeFilters";
+import AddToMealButton from "../../components/planner/AddToMealButton";
+import ImportRecipeModal from "../../components/recipes/ImportRecipeModal";
 
 function useDebounce<T>(value: T, delay: number) {
   const [debounced, setDebounced] = useState(value);
@@ -21,6 +23,7 @@ export default function RecipesListPage() {
     ordering: "-created_at",
     page: 1,
   });
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [selectedFilterTags, setSelectedFilterTags] = useState<Tag[]>([]);
   const debouncedSearch = useDebounce(searchInput, 350);
@@ -55,13 +58,23 @@ export default function RecipesListPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Recipes</h1>
-        <Link
-          to="/recipes/new"
-          className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
-        >
-          + New Recipe
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setImportModalOpen(true)}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+          >
+            Import from URL
+          </button>
+          <Link
+            to="/recipes/new"
+            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+          >
+            + New Recipe
+          </Link>
+        </div>
       </div>
+
+      <ImportRecipeModal open={importModalOpen} onClose={() => setImportModalOpen(false)} />
 
       {/* Search */}
       <div className="relative mb-4">
@@ -126,7 +139,12 @@ export default function RecipesListPage() {
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {data?.results.map((recipe) => (
-              <RecipeCard key={recipe.id} recipe={recipe} />
+              <div key={recipe.id} className="relative">
+                <RecipeCard recipe={recipe} />
+                <div className="absolute bottom-3 right-3">
+                  <AddToMealButton recipeId={recipe.id} />
+                </div>
+              </div>
             ))}
           </div>
 

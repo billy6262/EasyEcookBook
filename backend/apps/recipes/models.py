@@ -188,7 +188,7 @@ class CollectionRecipe(models.Model):
         Collection, on_delete=models.CASCADE, related_name="collection_recipes"
     )
     recipe = models.ForeignKey(
-        Recipe, on_delete=models.CASCADE, related_name="collection_memberships"
+        Recipe, on_delete=models.CASCADE, related_name="in_collections"
     )
     added_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

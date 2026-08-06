@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "apps.events.apps.EventsConfig",
     "apps.search.apps.SearchConfig",
     "apps.scraper.apps.ScraperConfig",
+    "apps.planner.apps.PlannerConfig",
 ]
 
 MIDDLEWARE = [
@@ -153,6 +154,10 @@ CORS_ALLOW_CREDENTIALS = True
 # ── Storage (MinIO / S3-compatible) ───────────────────────────────────────────
 _minio_use_https = env("MINIO_USE_HTTPS", default=False)
 _minio_endpoint = env("MINIO_ENDPOINT", default="localhost:9000")
+# Endpoint the *browser* uses to reach media. In Docker the backend talks to
+# MinIO over the internal hostname "minio:9000", but the browser can only reach
+# it via the published "localhost:9000". Defaults to the internal endpoint.
+_minio_public_endpoint = env("MINIO_PUBLIC_ENDPOINT", default=_minio_endpoint)
 
 STORAGES = {
     "default": {
@@ -173,6 +178,12 @@ AWS_QUERYSTRING_AUTH = False
 AWS_S3_SIGNATURE_VERSION = "s3v4"
 
 MEDIA_URL = f"{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/"
+
+# Browser-facing base URL for stored media (see _minio_public_endpoint above).
+_minio_public_scheme = "https" if _minio_use_https else "http"
+MINIO_PUBLIC_URL_BASE = (
+    f"{_minio_public_scheme}://{_minio_public_endpoint}/{AWS_STORAGE_BUCKET_NAME}/"
+)
 
 # ── Static files ───────────────────────────────────────────────────────────────
 STATIC_URL = "/static/"

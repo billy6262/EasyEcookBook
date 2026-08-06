@@ -3,6 +3,8 @@ from rest_framework import serializers
 from apps.recipes.models import (
     Category,
     Collection,
+    CollectionMembership,
+    CollectionRecipe,
     Comment,
     Ingredient,
     Recipe,
@@ -146,8 +148,63 @@ class CommentSerializer(serializers.ModelSerializer):
 class CollectionSerializer(serializers.ModelSerializer):
     created_by_email = serializers.EmailField(source="created_by.email", read_only=True)
     recipe_count = serializers.IntegerField(source="collection_recipes.count", read_only=True)
+    member_count = serializers.IntegerField(source="memberships.count", read_only=True)
+    my_role = serializers.SerializerMethodField()
 
     class Meta:
         model = Collection
-        fields = ["id", "name", "description", "visibility", "created_by_email", "recipe_count", "created_at"]
+        fields = [
+            "id", "name", "description", "visibility",
+            "created_by_email", "recipe_count", "member_count",
+            "my_role", "created_at",
+        ]
         read_only_fields = ["created_by_email", "created_at"]
+
+    def get_my_role(self, obj: Collection) -> str | None:
+        """The requesting user's role, or 'owner' if they created it."""
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return None
+        if obj.created_by_id == request.user.id:
+            return CollectionMembership.ROLE_OWNER
+        membership = next(
+            (m for m in obj.memberships.all() if m.user_id == request.user.id),
+            None,
+        )
+        return membership.role if membership else None
+
+
+class CollectionMembershipSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
+    email = serializers.EmailField(source="user.email", read_only=True)
+    first_name = serializers.CharField(source="user.first_name", read_only=True)
+    last_name = serializers.CharField(source="user.last_name", read_only=True)
+
+    class Meta:
+        model = CollectionMembership
+        fields = ["id", "user_id", "email", "first_name", "last_name", "role", "joined_at"]
+        read_only_fields = ["joined_at"]
+
+
+class CollectionRecipeSerializer(serializers.ModelSerializer):
+    recipe = RecipeListSerializer(read_only=True)
+    added_by_email = serializers.EmailField(source="added_by.email", read_only=True)
+
+    class Meta:
+        model = CollectionRecipe
+        fields = ["id", "recipe", "added_by_email", "added_at"]
+        read_only_fields = ["added_by_email", "added_at"]
+
+
+class CollectionDetailSerializer(CollectionSerializer):
+    """Full representation with nested recipes and members."""
+
+    recipes = serializers.SerializerMethodField()
+    members = CollectionMembershipSerializer(source="memberships", many=True, read_only=True)
+
+    class Meta(CollectionSerializer.Meta):
+        fields = CollectionSerializer.Meta.fields + ["recipes", "members"]
+
+    def get_recipes(self, obj: Collection) -> list:
+        qs = obj.collection_recipes.select_related("recipe", "added_by").order_by("-added_at")
+        return CollectionRecipeSerializer(qs, many=True, context=self.context).data

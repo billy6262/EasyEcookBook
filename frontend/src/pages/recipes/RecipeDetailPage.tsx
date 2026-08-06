@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { recipesApi } from "../../api/recipes";
@@ -6,6 +7,8 @@ import IngredientListDisplay from "../../components/recipes/IngredientListDispla
 import StepListDisplay from "../../components/recipes/StepListDisplay";
 import CommentsSection from "../../components/recipes/CommentsSection";
 import AccompanimentsSection from "../../components/recipes/AccompanimentsSection";
+import AddToMealButton from "../../components/planner/AddToMealButton";
+import AddToCollectionButton from "../../components/collections/AddToCollectionButton";
 
 function formatTime(minutes: number | null): string | null {
   if (!minutes) return null;
@@ -21,6 +24,9 @@ export default function RecipeDetailPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // Serving scaler — null means "use the recipe's base servings".
+  const [scaleTarget, setScaleTarget] = useState<number | null>(null);
 
   const { data: recipe, isLoading, error } = useQuery({
     queryKey: ["recipe", recipeId],
@@ -65,6 +71,12 @@ export default function RecipeDetailPage() {
   const isOwner = user?.pk === recipe.created_by.id;
   const imageSrc = recipe.cover_image || recipe.cover_image_url;
   const authorName = recipe.created_by.first_name || recipe.created_by.email.split("@")[0];
+
+  // Scaling: only offered when the recipe declares a base serving count.
+  const canScale = recipe.servings > 0;
+  const targetServings = scaleTarget ?? recipe.servings;
+  const scaleFactor = canScale ? targetServings / recipe.servings : 1;
+  const isScaled = canScale && targetServings !== recipe.servings;
 
   return (
     <article className="max-w-4xl mx-auto">
@@ -135,6 +147,28 @@ export default function RecipeDetailPage() {
 
       {/* Action bar */}
       <div className="flex flex-wrap gap-2 mb-8 pb-6 border-b">
+        {/* Start Cooking — always visible */}
+        {(recipe.steps?.length ?? 0) > 0 && (
+          <Link
+            to={`/cook?recipes=${recipeId}`}
+            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+          >
+            🍳 Start Cooking
+          </Link>
+        )}
+
+        {/* Add to meal plan — always visible */}
+        <AddToMealButton
+          recipeId={recipeId}
+          buttonClassName="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm hover:border-green-400 hover:text-green-600 transition-colors disabled:opacity-50 whitespace-nowrap"
+        />
+
+        {/* Add to collection — always visible */}
+        <AddToCollectionButton
+          recipeId={recipeId}
+          buttonClassName="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm hover:border-green-400 hover:text-green-600 transition-colors disabled:opacity-50 whitespace-nowrap"
+        />
+
         {isOwner ? (
           <>
             <Link
@@ -169,10 +203,42 @@ export default function RecipeDetailPage() {
       {/* Ingredients + Steps — two-column on desktop */}
       <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-8 mb-10">
         <div>
-          <h2 className="text-base font-semibold text-gray-900 mb-4">
-            Ingredients{recipe.ingredients?.length ? ` (${recipe.ingredients.length})` : ""}
-          </h2>
-          <IngredientListDisplay ingredients={recipe.ingredients ?? []} />
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <h2 className="text-base font-semibold text-gray-900">
+              Ingredients{recipe.ingredients?.length ? ` (${recipe.ingredients.length})` : ""}
+            </h2>
+            {canScale && (recipe.ingredients?.length ?? 0) > 0 && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setScaleTarget(Math.max(1, targetServings - 1))}
+                  className="w-6 h-6 rounded border border-gray-200 text-gray-500 hover:border-green-400 hover:text-green-600 text-sm leading-none flex items-center justify-center transition-colors"
+                  aria-label="Decrease servings"
+                >−</button>
+                <span className="text-sm text-gray-700 tabular-nums min-w-[4.5rem] text-center">
+                  {targetServings} serving{targetServings === 1 ? "" : "s"}
+                </span>
+                <button
+                  onClick={() => setScaleTarget(targetServings + 1)}
+                  className="w-6 h-6 rounded border border-gray-200 text-gray-500 hover:border-green-400 hover:text-green-600 text-sm leading-none flex items-center justify-center transition-colors"
+                  aria-label="Increase servings"
+                >+</button>
+                {isScaled && (
+                  <button
+                    onClick={() => setScaleTarget(null)}
+                    className="ml-1 text-xs text-gray-400 hover:text-green-600 underline transition-colors"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {isScaled && (
+            <p className="text-xs text-green-600 mb-3">
+              Scaled from {recipe.servings} to {targetServings} servings.
+            </p>
+          )}
+          <IngredientListDisplay ingredients={recipe.ingredients ?? []} scaleFactor={scaleFactor} />
         </div>
         <div>
           <h2 className="text-base font-semibold text-gray-900 mb-4">Steps</h2>

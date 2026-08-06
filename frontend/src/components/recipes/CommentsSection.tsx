@@ -8,7 +8,7 @@ interface Props {
 }
 
 function CommentItem({ comment }: { comment: Comment }) {
-  const initial = comment.author_email[0].toUpperCase();
+  const initial = comment.author_email?.charAt(0)?.toUpperCase() ?? "?";
   return (
     <div className="flex gap-3">
       <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-700 text-xs font-semibold flex-shrink-0">

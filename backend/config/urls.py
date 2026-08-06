@@ -12,4 +12,6 @@ urlpatterns = [
     path("api/recipes/", include("apps.recipes.urls")),
     path("api/events/", include("apps.events.urls")),
     path("api/search/", include("apps.search.urls")),
+    path("api/planner/", include("apps.planner.urls")),
+    path("api/scraper/", include("apps.scraper.urls")),
 ]

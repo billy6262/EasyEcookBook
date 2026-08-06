@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
+import type { ScrapeResult } from "../../api/scraper";
 import { useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { recipesApi, type Recipe, type Tag } from "../../api/recipes";
@@ -36,6 +37,8 @@ export default function RecipeFormPage() {
   const isEdit = !!recipeId;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const prefill = !isEdit ? (location.state as { prefill?: ScrapeResult } | null)?.prefill : undefined;
 
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverUrl, setCoverUrl] = useState("");
@@ -86,6 +89,36 @@ export default function RecipeFormPage() {
       setAddingCategory(false);
     },
   });
+
+  // Pre-fill when importing from scraper (create mode only)
+  useEffect(() => {
+    if (!prefill) return;
+    reset({
+      title: prefill.title,
+      description: prefill.description ?? "",
+      servings: prefill.servings ?? 4,
+      prep_time: prefill.prep_time ?? "",
+      cook_time: prefill.cook_time ?? "",
+      source_url: prefill.source_url ?? "",
+      category_id: "",
+    });
+    setCoverUrl(prefill.cover_image_url ?? "");
+    if (prefill.ingredients?.length) {
+      setIngredients(
+        prefill.ingredients.map((ing) => ({
+          _id: genId(),
+          ingredient_name: ing.ingredient_name,
+          quantity: ing.quantity,
+          unit: ing.unit,
+          notes: ing.notes,
+        }))
+      );
+    }
+    if (prefill.steps?.length) {
+      setSteps(prefill.steps.map((str) => ({ _id: genId(), description: str })));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount
 
   // Pre-fill when editing
   useEffect(() => {
@@ -342,7 +375,7 @@ export default function RecipeFormPage() {
             Cover Image
           </h2>
           <CoverImageInput
-            currentUrl={existingRecipe?.cover_image || existingRecipe?.cover_image_url}
+            currentUrl={coverUrl || existingRecipe?.cover_image || existingRecipe?.cover_image_url}
             onFileSelect={setCoverFile}
             onUrlChange={setCoverUrl}
           />

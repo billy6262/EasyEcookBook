@@ -1,5 +1,6 @@
 from django.db import transaction
 from django.db.models import Q
+from django.contrib.auth import get_user_model
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter, SearchFilter
@@ -8,6 +9,8 @@ from rest_framework.response import Response
 from apps.recipes.models import (
     Category,
     Collection,
+    CollectionMembership,
+    CollectionRecipe,
     Ingredient,
     Recipe,
     RecipeAccompaniment,
@@ -15,9 +18,11 @@ from apps.recipes.models import (
     Step,
     Tag,
 )
-from apps.recipes.permissions import IsRecipeOwnerOrReadOnly
+from apps.recipes.permissions import IsRecipeOwnerOrReadOnly, IsCollectionMember, collection_role
 from apps.recipes.serializers import (
     CategorySerializer,
+    CollectionDetailSerializer,
+    CollectionMembershipSerializer,
     CollectionSerializer,
     CommentSerializer,
     IngredientSerializer,
@@ -215,6 +220,13 @@ class RecipeViewSet(viewsets.ModelViewSet):
         except Recipe.DoesNotExist:
             return Response({"detail": "Recipe not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        # Block linking a private recipe the user can't access (silent 404).
+        if (
+            other.visibility != Recipe.VISIBILITY_PUBLIC
+            and other.created_by_id != request.user.id
+        ):
+            return Response({"detail": "Recipe not found."}, status=status.HTTP_404_NOT_FOUND)
+
         already_linked = RecipeAccompaniment.objects.filter(
             Q(from_recipe=recipe, to_recipe=other)
             | Q(from_recipe=other, to_recipe=recipe)
@@ -281,11 +293,219 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
 
 class CollectionViewSet(viewsets.ModelViewSet):
-    serializer_class = CollectionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsCollectionMember]
+    pagination_class = None  # lists are small; return plain arrays
+
+    def get_serializer_class(self):
+        if self.action in ("retrieve", "create", "update", "partial_update"):
+            return CollectionDetailSerializer
+        return CollectionSerializer
 
     def get_queryset(self):
-        return Collection.objects.filter(created_by=self.request.user)
+        user = self.request.user
+        base = Collection.objects.prefetch_related("memberships", "collection_recipes")
+
+        # ?scope=public → discover other users' public collections
+        if self.request.query_params.get("scope") == "public":
+            return (
+                base.filter(visibility=Collection.VISIBILITY_PUBLIC)
+                .exclude(created_by=user)
+                .exclude(memberships__user=user)
+                .distinct()
+                .order_by("-created_at")
+            )
+
+        # ?scope=shared → collections I'm a member of but didn't create
+        if self.request.query_params.get("scope") == "shared":
+            return (
+                base.filter(memberships__user=user)
+                .exclude(created_by=user)
+                .distinct()
+                .order_by("-created_at")
+            )
+
+        # Default: everything I can access (mine + shared)
+        return (
+            base.filter(Q(created_by=user) | Q(memberships__user=user))
+            .distinct()
+            .order_by("-created_at")
+        )
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        collection = serializer.save(created_by=self.request.user)
+        # Ensure the creator has an explicit owner membership row.
+        CollectionMembership.objects.get_or_create(
+            collection=collection,
+            user=self.request.user,
+            defaults={"role": CollectionMembership.ROLE_OWNER},
+        )
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    def _require_role(self, collection, roles):
+        """Return True if the requesting user holds one of the given roles."""
+        return collection_role(collection, self.request.user) in roles
+
+    # ── Recipe management ────────────────────────────────────────────────────
+
+    @action(detail=True, methods=["post"], url_path="add-recipe")
+    def add_recipe(self, request, pk=None):
+        collection = self.get_object()
+        if not self._require_role(
+            collection,
+            [CollectionMembership.ROLE_OWNER, CollectionMembership.ROLE_CONTRIBUTOR],
+        ):
+            return Response(
+                {"detail": "You need contributor access to add recipes."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        recipe_id = request.data.get("recipe_id")
+        try:
+            recipe = Recipe.objects.get(pk=recipe_id)
+        except Recipe.DoesNotExist:
+            return Response({"detail": "Recipe not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Don't allow adding a private recipe the user can't access (avoid
+        # leaking its existence — respond with 404 rather than 403).
+        if (
+            recipe.visibility != Recipe.VISIBILITY_PUBLIC
+            and recipe.created_by_id != request.user.id
+        ):
+            return Response({"detail": "Recipe not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        CollectionRecipe.objects.get_or_create(
+            collection=collection,
+            recipe=recipe,
+            defaults={"added_by": request.user},
+        )
+        return Response(
+            CollectionDetailSerializer(collection, context={"request": request}).data
+        )
+
+    @action(
+        detail=True,
+        methods=["delete"],
+        url_path=r"remove-recipe/(?P<recipe_id>\d+)",
+    )
+    def remove_recipe(self, request, pk=None, recipe_id=None):
+        collection = self.get_object()
+        if not self._require_role(
+            collection,
+            [CollectionMembership.ROLE_OWNER, CollectionMembership.ROLE_CONTRIBUTOR],
+        ):
+            return Response(
+                {"detail": "You need contributor access to remove recipes."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        CollectionRecipe.objects.filter(
+            collection=collection, recipe_id=recipe_id
+        ).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # ── Member management ────────────────────────────────────────────────────
+
+    @action(detail=True, methods=["post"], url_path="add-member")
+    def add_member(self, request, pk=None):
+        collection = self.get_object()
+        if not self._require_role(collection, [CollectionMembership.ROLE_OWNER]):
+            return Response(
+                {"detail": "Only the owner can manage members."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        email = (request.data.get("email") or "").strip().lower()
+        role = request.data.get("role") or CollectionMembership.ROLE_VIEWER
+        valid_roles = {
+            CollectionMembership.ROLE_CONTRIBUTOR,
+            CollectionMembership.ROLE_VIEWER,
+        }
+        if role not in valid_roles:
+            return Response(
+                {"detail": "Role must be 'contributor' or 'viewer'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        User = get_user_model()
+        try:
+            user = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": f"No user found with email '{email}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if user.id == collection.created_by_id:
+            return Response(
+                {"detail": "The owner is already a member."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        membership, _ = CollectionMembership.objects.update_or_create(
+            collection=collection,
+            user=user,
+            defaults={"role": role},
+        )
+        return Response(
+            CollectionMembershipSerializer(membership).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=True,
+        methods=["patch", "delete"],
+        url_path=r"members/(?P<user_id>\d+)",
+    )
+    def manage_member(self, request, pk=None, user_id=None):
+        collection = self.get_object()
+        if not self._require_role(collection, [CollectionMembership.ROLE_OWNER]):
+            return Response(
+                {"detail": "Only the owner can manage members."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if int(user_id) == collection.created_by_id:
+            return Response(
+                {"detail": "The owner's membership cannot be changed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        membership = CollectionMembership.objects.filter(
+            collection=collection, user_id=user_id
+        ).first()
+        if not membership:
+            return Response({"detail": "Member not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.method == "DELETE":
+            membership.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        role = request.data.get("role")
+        if role not in {
+            CollectionMembership.ROLE_CONTRIBUTOR,
+            CollectionMembership.ROLE_VIEWER,
+        }:
+            return Response(
+                {"detail": "Role must be 'contributor' or 'viewer'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        membership.role = role
+        membership.save(update_fields=["role"])
+        return Response(CollectionMembershipSerializer(membership).data)
+
+    @action(detail=True, methods=["post"], url_path="leave")
+    def leave(self, request, pk=None):
+        collection = self.get_object()
+        if collection.created_by_id == request.user.id:
+            return Response(
+                {"detail": "The owner cannot leave their own collection."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        deleted, _ = CollectionMembership.objects.filter(
+            collection=collection, user=request.user
+        ).delete()
+        if not deleted:
+            return Response(
+                {"detail": "You are not a member of this collection."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
