@@ -263,6 +263,17 @@ class DemoLoginView(APIView):
         return response
 
 
+class PublicSiteSettingsView(APIView):
+    """Unauthenticated, minimal subset of SiteSettings safe to expose publicly."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        site = SiteSettings.load()
+        return Response({"demo_enabled": site.demo_enabled})
+
+
 class CsrfCookieView(APIView):
     """Set and return Django's CSRF token for the cookie-authenticated SPA."""
 

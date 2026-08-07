@@ -14,6 +14,8 @@ export interface User {
 export const authApi = {
   getUser: () => apiClient.get<User>("/auth/user/"),
 
+  getPublicSettings: () => apiClient.get<{ demo_enabled: boolean }>("/settings/public/"),
+
   login: (email: string, password: string) =>
     apiClient.post("/auth/login/", { email, password }),
 

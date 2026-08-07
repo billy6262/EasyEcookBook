@@ -1,7 +1,9 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
+import { authApi } from "../api/auth";
 import { useAuth } from "../contexts/AuthContext";
 import ThemeToggle from "../components/ThemeToggle";
 
@@ -13,7 +15,7 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, demoLogin } = useAuth();
   const navigate = useNavigate();
   const {
     register,
@@ -22,12 +24,26 @@ export default function LoginPage() {
     formState: { errors, isSubmitting },
   } = useForm<FormData>({ resolver: zodResolver(schema) });
 
+  const { data: publicSettings } = useQuery({
+    queryKey: ["public-settings"],
+    queryFn: () => authApi.getPublicSettings().then((r) => r.data),
+  });
+
   const onSubmit = async (data: FormData) => {
     try {
       await login(data.email, data.password);
       navigate("/");
     } catch {
       setError("root", { message: "Invalid email or password." });
+    }
+  };
+
+  const onDemoLogin = async () => {
+    try {
+      await demoLogin();
+      navigate("/");
+    } catch {
+      setError("root", { message: "The demo is temporarily unavailable." });
     }
   };
 
@@ -82,6 +98,24 @@ export default function LoginPage() {
             {isSubmitting ? "Signing in…" : "Sign In"}
           </button>
         </form>
+
+        {publicSettings?.demo_enabled && (
+          <>
+            <div className="flex items-center gap-3 my-4">
+              <div className="flex-1 h-px bg-gray-200" />
+              <span className="text-xs text-gray-400">or</span>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+            <button
+              type="button"
+              onClick={onDemoLogin}
+              disabled={isSubmitting}
+              className="w-full border border-gray-300 text-gray-700 py-2 px-4 rounded-md text-sm font-medium hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            >
+              Try the read-only demo
+            </button>
+          </>
+        )}
 
         <p className="mt-4 text-sm text-center text-gray-500">
           Don&apos;t have an account?{" "}

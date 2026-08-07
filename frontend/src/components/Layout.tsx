@@ -44,6 +44,14 @@ export default function Layout() {
               >
                 About
               </Link>
+              {user?.is_staff && (
+                <Link
+                  to="/admin"
+                  className="text-sm text-gray-600 hover:text-gray-900"
+                >
+                  Admin
+                </Link>
+              )}
               <span className="text-sm text-gray-400">{user?.email}</span>
               <ThemeToggle />
               <button
