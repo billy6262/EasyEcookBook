@@ -14,6 +14,7 @@ env = environ.Env(
     EMAIL_PORT=(int, 587),
     EMAIL_USE_TLS=(bool, True),
     ACCOUNT_EMAIL_VERIFICATION=(str, "mandatory"),
+    MEILISEARCH_ENABLED=(bool, False),
 )
 
 # ── Core ───────────────────────────────────────────────────────────────────────
@@ -221,6 +222,14 @@ EMAIL_USE_TLS = env("EMAIL_USE_TLS")
 EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@easyecookbook.local")
+
+# ── Search (optional MeiliSearch backend) ──────────────────────────────────────
+# Falls back to PostgreSQL full-text search automatically when disabled or
+# unreachable. Enable with: docker compose --profile search up
+MEILISEARCH_ENABLED = env("MEILISEARCH_ENABLED")
+MEILISEARCH_URL = env("MEILISEARCH_URL", default="http://meilisearch:7700")
+MEILI_MASTER_KEY = env("MEILI_MASTER_KEY", default="")
+MEILISEARCH_INDEX_RECIPES = "recipes"
 
 # ── Internationalisation ───────────────────────────────────────────────────────
 LANGUAGE_CODE = "en-us"

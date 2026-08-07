@@ -29,6 +29,9 @@ gunicorn==23.0.0
 python-slugify==8.0.4
 requests==2.32.3
 
+# ── Search (optional MeiliSearch backend) ────────────────────────────────────
+meilisearch==0.31.6
+
 # ── Future: async tasks (uncomment when adding Celery support) ────────────────
 # celery==5.4.0
 # redis==5.2.1

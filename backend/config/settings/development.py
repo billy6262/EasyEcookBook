@@ -35,3 +35,12 @@ REST_FRAMEWORK = {
 
 # Show full error details
 INTERNAL_IPS = ["127.0.0.1"]
+
+# Test runs use a rolled-back transactional database, but MeiliSearch is an
+# external system that wouldn't roll back with it — indexing test data would
+# permanently pollute the dev index with orphaned documents. Disable it for
+# `manage.py test` regardless of MEILISEARCH_ENABLED.
+import sys  # noqa: E402
+
+if "test" in sys.argv:
+	MEILISEARCH_ENABLED = False

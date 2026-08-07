@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.contrib.auth import get_user_model
@@ -7,6 +8,7 @@ from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 
 from apps.core.demo import effective_user
+from apps.search.meilisearch_client import search_recipe_ids
 from apps.recipes.models import (
     Category,
     Collection,
@@ -41,8 +43,7 @@ from apps.recipes.serializers import (
 
 class RecipeViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsRecipeOwnerOrReadOnly]
-    filter_backends = [SearchFilter, OrderingFilter]
-    search_fields = ["title", "description"]
+    filter_backends = [OrderingFilter]
     ordering_fields = ["created_at", "title"]
     ordering = ["-created_at"]
 
@@ -57,7 +58,8 @@ class RecipeViewSet(viewsets.ModelViewSet):
         user = effective_user(self.request)
         params = self.request.query_params
 
-        if params.get("mine") == "true":
+        mine = params.get("mine") == "true"
+        if mine:
             qs = Recipe.objects.filter(created_by=user)
         else:
             qs = recipes_visible_to_request(self.request)
@@ -69,6 +71,22 @@ class RecipeViewSet(viewsets.ModelViewSet):
         for tid in params.get("tags", "").split(","):
             if tid.strip().isdigit():
                 qs = qs.filter(tags__id=tid.strip()).distinct()
+
+        search_query = params.get("search", "").strip()
+        if search_query:
+            ids = (
+                search_recipe_ids(self.request, search_query, mine=mine)
+                if settings.MEILISEARCH_ENABLED
+                else None
+            )
+            if ids is not None:
+                qs = qs.filter(id__in=ids)
+            else:
+                # MeiliSearch disabled or unreachable — fall back to a plain
+                # substring match over the same fields it would have searched.
+                qs = qs.filter(
+                    Q(title__icontains=search_query) | Q(description__icontains=search_query)
+                )
 
         return qs
 
