@@ -8,7 +8,7 @@ DEBUG = False
 REST_AUTH = {
     **REST_AUTH,  # type: ignore[name-defined]
     "JWT_AUTH_SECURE": True,      # cookies only sent over HTTPS
-    "JWT_AUTH_SAMESITE": "Lax",
+    "JWT_AUTH_SAMESITE": "Strict",
 }
 
 # Hardened security middleware settings

@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+
 from apps.recipes.models import (
     Category,
     Collection,
@@ -13,6 +15,7 @@ from apps.recipes.models import (
     Tag,
 )
 from apps.recipes.permissions import recipes_visible_to_request
+from apps.scraper.utils import validate_scrape_url
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -80,6 +83,22 @@ class RecipeWriteSerializer(serializers.ModelSerializer):
             "visibility", "cover_image", "cover_image_url", "source_url",
             "tag_ids", "category_id",
         ]
+
+    def validate_cover_image_url(self, value):
+        """Reject URLs that resolve to private/reserved networks or embed
+        credentials, mirroring the scraper's SSRF-safe URL policy. Browsers
+        (not Django) load this URL, so this is defense-in-depth against
+        internal-network probing/phishing via a pasted image link, not a
+        server-side fetch."""
+        if not value:
+            return value
+        try:
+            validate_scrape_url(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(
+                exc.messages[0] if exc.messages else "Invalid image URL."
+            )
+        return value
 
     def _set_tags(self, instance, tags):
         if tags is not None:
