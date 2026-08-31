@@ -216,7 +216,7 @@ export default function AboutPage() {
                 Orca ML Dashboard ↗
               </a>
               <a
-                href="mailto:Andrew.Dorchak98@Gmail.com"
+                href="mailto:andrew@amdorchak.top"
                 className="text-sm px-4 py-2 border border-gray-200 rounded-lg text-gray-600 hover:border-green-400 hover:text-green-600 transition-colors"
               >
                 Email

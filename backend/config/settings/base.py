@@ -118,7 +118,7 @@ ACCOUNT_UNIQUE_EMAIL = True
 # ── Read-only demo ─────────────────────────────────────────────────────────────
 # The demo account browses this user's content so recruiters see a populated app.
 DEMO_ACCOUNT_EMAIL = env("DEMO_ACCOUNT_EMAIL", default="demo@easyecookbook.local")
-DEMO_SHOWCASE_EMAIL = env("DEMO_SHOWCASE_EMAIL", default="andrew.dorchak98@gmail.com")
+DEMO_SHOWCASE_EMAIL = env("DEMO_SHOWCASE_EMAIL", default="andrew@amdorchak.top")
 
 # ── REST Framework ─────────────────────────────────────────────────────────────
 REST_FRAMEWORK = {
